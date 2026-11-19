@@ -1,0 +1,14 @@
+{
+  "name": "DIY Garage - Truck Spec Reference",
+  "short_name": "DIY Garage",
+  "description": "Independent DIY service specs and maintenance tracker for 1990-present F-150 pickups. Not affiliated with Ford Motor Company.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#00095B",
+  "theme_color": "#00095B",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
