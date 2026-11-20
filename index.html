@@ -41,6 +41,7 @@
             <button class="btn" id="btnVin" type="button">DECODE</button>
           </div>
         </label>
+        <button class="btn ghost full scanbtn" id="btnScan" type="button">📷 SCAN VIN WITH CAMERA</button>
         <p class="hint" style="margin-top:4px">The VIN is on the driver-side dash (seen through the windshield), the driver door-jamb sticker, and your registration and insurance cards.</p>
         <div id="vinOut"></div>
         <div class="or"><span>OR CHOOSE MANUALLY</span></div>
@@ -177,7 +178,10 @@
           <label>NICKNAME<input type="text" id="setName" placeholder="Old Blue"></label>
           <label>VIN (OPTIONAL)<input type="text" id="setVin" maxlength="17" placeholder="1FTFW1E..." autocapitalize="characters" spellcheck="false"></label>
         </div>
-        <button class="btn ghost full" id="btnDecodeSaved" type="button">DECODE THIS VIN</button>
+        <div class="row-btns" style="margin-top:12px">
+          <button class="btn ghost" id="btnDecodeSaved" type="button">DECODE THIS VIN</button>
+          <button class="btn ghost" id="btnScanSaved" type="button">📷 SCAN VIN</button>
+        </div>
       </div>
       <div class="card">
         <div class="card-h"><span class="sec">SEC 21</span> OIL CHANGE INTERVAL</div>
@@ -207,6 +211,8 @@
 
   <div id="toast" class="toast"></div>
 
+  <script src="zxing.min.js"></script>
+  <script src="vin-scan.js"></script>
   <script src="data.js"></script>
   <script src="data-hd.js"></script>
   <script src="data-ford.js"></script>

@@ -343,6 +343,7 @@
     box.innerHTML = `<div class="vinbox">
       <div class="vinhead">VIN ${esc(local.vin)}${local.ok ? (local.checkOk ? ' <span class="chip ok">CHECK DIGIT OK</span>' : ' <span class="chip bad">CHECK DIGIT</span>') : ""}</div>
       <div class="vinbody">
+        ${local.scanNote ? `<div class="vinscan">📷 ${esc(local.scanNote)}</div>` : ""}
         ${warn.map((w) => `<div class="vinwarn">⚠ ${esc(w)}</div>`).join("")}
         ${match}${rows}
         <div class="row-btns">
@@ -360,8 +361,9 @@
     };
   }
 
-  async function decodeVin() {
+  async function decodeVin(scanNote) {
     const local = vinLocal($("#vinInput").value);
+    if (typeof scanNote === "string" && scanNote) local.scanNote = scanNote;
     $("#vinInput").value = local.vin;
     if (!local.ok) { renderVin({ local, n: null, m: null }); return; }
     renderVin({ loading: true, vin: local.vin });
@@ -380,7 +382,18 @@
       const p = inp.selectionStart; inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, ""); try { inp.setSelectionRange(p, p); } catch { /* ignore */ }
     });
     inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); decodeVin(); } });
-    $("#btnVin").onclick = decodeVin;
+    $("#btnVin").onclick = () => decodeVin();
+    $("#btnScan").onclick = () => {
+      if (!window.VinScan) return toast("Scanner not available");
+      window.VinScan.open((r) => {
+        $("#vinInput").value = r.vin;
+        const how = r.method === "barcode" ? "Scanned from barcode" : "Read from VIN text";
+        const note = r.quality === "corrected" ? `${how} - one character was auto-corrected using the check digit. Compare it with your vehicle.`
+          : r.quality === "unverified" ? `${how} - the check digit doesn't match, so some characters may be misread. Compare it with your vehicle and fix any typos.`
+          : r.method === "text" ? `${how} - compare it with your vehicle before saving.` : how + ".";
+        decodeVin(note);
+      });
+    };
   }
 
   // ---------------- spec sheet ----------------
@@ -943,6 +956,10 @@
         $("#vinInput").value = v;
         document.querySelector('.tabbar button[data-tab="specs"]').click();
         decodeVin();
+      };
+      $("#btnScanSaved").onclick = () => {
+        document.querySelector('.tabbar button[data-tab="specs"]').click();
+        $("#btnScan").click();
       };
     }
     init();
