@@ -176,6 +176,36 @@ html,body{overflow-x:hidden}
 .or::before,.or::after{content:"";flex:1;border-top:1px dashed var(--line)}
 @media (prefers-color-scheme: dark){ .vinhead{background:#16213a;color:#8cc4ff} .vinwarn{background:#2a2110;color:#f3d79b;border-color:#7a5a12} }
 
+.scanbtn{margin-top:8px}
+.card > .btn{width:calc(100% - 24px)}
+.vinscan{background:#e8f1fd;border:1px solid #b9d3f3;color:#0b2f66;border-radius:4px;padding:6px 8px;font-size:12px;margin-top:8px}
+
+/* ---------- camera scanner overlay ---------- */
+body.scan-open{overflow:hidden}
+.scan{position:fixed;inset:0;z-index:50;background:#000;display:flex;flex-direction:column;color:#fff;
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+.scan-top{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#00063d;border-bottom:3px solid var(--blue3)}
+.scan-title{font-weight:800;letter-spacing:2px;font-size:13px}
+.scan-x{background:none;border:0;color:#fff;font-size:22px;line-height:1;cursor:pointer;padding:4px 8px}
+.scan-view{position:relative;flex:1;min-height:0;overflow:hidden;background:#000}
+.scan-view video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.scan-guide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.scan-box{position:relative;width:90%;height:45%;max-height:260px;border:2px solid rgba(255,255,255,.9);border-radius:10px;
+  box-shadow:0 0 0 9999px rgba(0,0,0,.45)}
+.scan-box i{position:absolute;left:6%;right:6%;top:50%;height:2px;background:#ff3b3b;box-shadow:0 0 8px #ff3b3b;animation:scanline 1.8s ease-in-out infinite}
+@keyframes scanline{0%,100%{transform:translateY(-40px);opacity:.6}50%{transform:translateY(40px);opacity:1}}
+.scan-msg{position:absolute;left:12px;right:12px;bottom:12px;text-align:center;background:rgba(0,0,0,.65);border-radius:6px;padding:8px 10px;
+  font-size:13px;font-weight:600}
+.scan-msg.ok{background:rgba(10,125,56,.9)} .scan-msg.err{background:rgba(196,30,30,.9)}
+.scan-tips{font-size:12px;line-height:1.45;color:#c8d1e3;padding:10px 14px;background:#0b0f1a}
+.scan-btns{display:grid;grid-template-columns:1.4fr 1fr auto;gap:8px;padding:10px 14px 14px;background:#0b0f1a}
+.scan-btns .btn{margin-top:0}
+.scan-btns .btn.ghost{background:transparent;color:#fff;border-color:#8fa2cc}
+.scan-btns .btn.on{background:#c77700;border-color:#c77700}
+.scan-btns .btn:disabled{opacity:.5}
+.scan-photo{text-align:center;cursor:pointer}
+@media (prefers-color-scheme: dark){ .vinscan{background:#13233f;color:#bcd7ff;border-color:#2a4a7a} }
+
 .prelim{background:#fff4e0;border:1px solid #e8c35a;border-left:6px solid var(--warn);color:#5c3b00;
   border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;line-height:1.45}
 .seg button{padding:10px 4px;font-size:13px}

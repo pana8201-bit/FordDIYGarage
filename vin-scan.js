@@ -30,23 +30,35 @@
   const ALT = { "0": ["D"], D: ["0"], "1": ["L", "T"], L: ["1"], T: ["1", "7"], "5": ["S"], S: ["5"], "8": ["B"], B: ["8"],
                 "2": ["Z"], Z: ["2", "7"], "6": ["G"], G: ["6"], "7": ["T", "Z"], "4": ["A"], A: ["4"], U: ["V"], V: ["U", "Y"], Y: ["V"] };
 
-  function fixCandidate(raw) {
-    const v = raw.split("").map((c) => FORCE[c] || c).join("");
+  // Positions 13-17 of a North American VIN are always digits; position 9 is a digit or X;
+  // position 10 (model year) is never U, Z or 0.
+  const TO_DIGIT = { O: "0", Q: "0", D: "0", I: "1", L: "1", T: "7", S: "5", B: "8", Z: "2", G: "6", A: "4" };
+  const posOk = (v) => /^[0-9X]$/.test(v[8]) && !/[UZ0]/.test(v[9]) && /^\d{5}$/.test(v.slice(12));
+
+  function fixCandidate(raw, ocr) {
+    let v = raw.split("").map((c) => FORCE[c] || c).join("");
     if (!/^[A-Z0-9]{17}$/.test(v)) return null;
-    if (checkOk(v)) return { vin: v, exact: v === raw };
-    // a single substitution that makes the check digit valid
-    const fixes = [];
+    // barcodes are read exactly - only text recognition gets look-alike corrections
+    if (!ocr) return checkOk(v) ? { vin: v } : { vin: v, invalid: true };
+    // letters in the always-numeric serial positions are misreads
+    v = v.slice(0, 12) + v.slice(12).split("").map((c) => TO_DIGIT[c] || c).join("");
+    if (v[8] !== "X" && TO_DIGIT[v[8]]) v = v.slice(0, 8) + TO_DIGIT[v[8]] + v.slice(9);
+    const changed = v !== raw.replace(/[IOQ]/g, (c) => FORCE[c]);
+    if (checkOk(v) && posOk(v)) return { vin: v, corrected: changed };
+    // a single look-alike substitution that makes the check digit valid
+    const fixes = new Set();
     for (let i = 0; i < 17; i++) for (const r of ALT[v[i]] || []) {
       const t = v.slice(0, i) + r + v.slice(i + 1);
-      if (checkOk(t)) fixes.push(t);
+      if (checkOk(t) && posOk(t)) fixes.add(t);
     }
-    if (fixes.length === 1) return { vin: fixes[0], corrected: true };
+    if (fixes.size === 1) return { vin: [...fixes][0], corrected: true };
     return { vin: v, invalid: true };
   }
 
   /* Pull a VIN out of scanned/recognized text. Returns
-     { vin, quality: "valid" | "corrected" | "unverified" } or null. */
-  function extractVin(text) {
+     { vin, quality: "valid" | "corrected" | "unverified" } or null.
+     opts.ocr = true allows look-alike corrections (text recognition only). */
+  function extractVin(text, opts = {}) {
     if (!text) return null;
     let s = String(text).toUpperCase();
     s = s.replace(/^\s*I(?=[A-Z0-9]{17}\b)/, "");          // Code 39 import-vehicle prefix
@@ -62,7 +74,7 @@
     if (joined.length >= 17 && joined.length <= 60) for (let i = 0; i + 17 <= joined.length; i++) cands.push(joined.slice(i, i + 17));
     let best = null;
     for (const c of cands) {
-      const f = fixCandidate(c);
+      const f = fixCandidate(c, !!opts.ocr);
       if (!f) continue;
       if (!f.invalid) return { vin: f.vin, quality: f.corrected ? "corrected" : "valid" };
       if (!best) best = { vin: f.vin, quality: "unverified" };
@@ -110,8 +122,10 @@
     } catch { return null; } finally { try { r.reset(); } catch { /* ignore */ } }
   }
 
-  // draw a source into a canvas (optionally a centered crop and/or rotated 90°)
-  function toCanvas(src, sw, sh, { crop = null, rotate = false, maxW = 1280 } = {}) {
+  // Draw a source into a canvas: optional centered crop, rotated 90 deg and/or
+  // de-skewed by `angle` degrees (a tilted 1D barcode needs a scan line that
+  // crosses every bar).
+  function toCanvas(src, sw, sh, { crop = null, rotate = false, angle = 0, maxW = 1280 } = {}) {
     let x = 0, y = 0, w = sw, h = sh;
     if (crop) { w = Math.round(sw * crop.w); h = Math.round(sh * crop.h); x = Math.round((sw - w) / 2); y = Math.round((sh - h) / 2); }
     const scale = Math.min(1, maxW / Math.max(w, h));
@@ -119,23 +133,37 @@
     const c = document.createElement("canvas");
     c.width = rotate ? ch : cw; c.height = rotate ? cw : ch;
     const ctx = c.getContext("2d", { willReadFrequently: true });
-    if (rotate) { ctx.translate(ch, 0); ctx.rotate(Math.PI / 2); }
-    ctx.drawImage(src, x, y, w, h, 0, 0, cw, ch);
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.translate(c.width / 2, c.height / 2);
+    if (rotate) ctx.rotate(Math.PI / 2);
+    if (angle) ctx.rotate((angle * Math.PI) / 180);
+    ctx.drawImage(src, x, y, w, h, -cw / 2, -ch / 2, cw, ch);
     return c;
   }
 
-  async function decodeSource(src, sw, sh, crops) {
+  async function nativeDetect(src) {
     const nd = await getNative();
-    if (nd) {
-      try {
-        const codes = await nd.detect(src);
-        for (const c of codes) { const v = extractVin(c.rawValue); if (v) return { ...v, raw: c.rawValue, method: "barcode" }; }
-      } catch { /* fall through to ZXing */ }
-    }
-    for (const crop of crops) for (const rotate of [false, true]) {
-      const txt = zxDecodeCanvas(toCanvas(src, sw, sh, { crop, rotate }));
-      const v = txt && extractVin(txt);
-      if (v) return { ...v, raw: txt, method: "barcode" };
+    if (!nd) return null;
+    try {
+      const codes = await nd.detect(src);
+      for (const c of codes) { const v = extractVin(c.rawValue); if (v) return { ...v, raw: c.rawValue, method: "barcode" }; }
+    } catch { /* fall through to ZXing */ }
+    return null;
+  }
+  function zxTry(src, sw, sh, opts) {
+    const txt = zxDecodeCanvas(toCanvas(src, sw, sh, opts));
+    const v = txt && extractVin(txt);
+    return v ? { ...v, raw: txt, method: "barcode" } : null;
+  }
+
+  // full search for still photos
+  const SKEWS = [0, -5, 5, -10, 10, -15, 15];
+  async function decodeSource(src, sw, sh, crops, skews = SKEWS) {
+    const n = await nativeDetect(src);
+    if (n) return n;
+    for (const angle of skews) for (const crop of crops) for (const rotate of [false, true]) {
+      const r = zxTry(src, sw, sh, { crop, rotate, angle });
+      if (r) return r;
     }
     return null;
   }
@@ -144,6 +172,20 @@
   async function decodeImage(fileOrImg) {
     const img = fileOrImg instanceof HTMLImageElement ? fileOrImg : await loadImage(fileOrImg);
     return decodeSource(img, img.naturalWidth, img.naturalHeight, [null, { w: 0.9, h: 0.5 }, { w: 0.7, h: 0.3 }]);
+  }
+
+  // Live video: one cheap attempt per frame, cycling through crop and skew
+  // variations so the phone stays responsive.
+  const FRAME_PLAN = [
+    { crop: { w: 0.9, h: 0.45 } }, { crop: null }, { crop: { w: 0.9, h: 0.45 }, angle: -6 }, { crop: { w: 0.9, h: 0.45 }, angle: 6 },
+    { crop: { w: 0.9, h: 0.45 }, rotate: true }, { crop: { w: 0.9, h: 0.45 }, angle: -12 }, { crop: { w: 0.9, h: 0.45 }, angle: 12 }
+  ];
+  let frameN = 0;
+  async function decodeFrame(v) {
+    const n = await nativeDetect(v);
+    if (n) return n;
+    const plan = FRAME_PLAN[frameN++ % FRAME_PLAN.length];
+    return zxTry(v, v.videoWidth, v.videoHeight, { ...plan, maxW: 1024 });
   }
   function loadImage(file) {
     return new Promise((res, rej) => {
@@ -198,7 +240,7 @@
     for (const c of attempts) {
       const { data } = await w.recognize(c);
       lastText = data.text || "";
-      const v = extractVin(lastText);
+      const v = extractVin(lastText, { ocr: true });
       if (v && v.quality !== "unverified") return { ...v, raw: lastText, method: "text" };
       if (v && attempts.indexOf(c) === attempts.length - 1) return { ...v, raw: lastText, method: "text" };
     }
@@ -216,12 +258,12 @@
     el.innerHTML = `
       <div class="scan-top">
         <span class="scan-title">SCAN VIN</span>
-        <button class="scan-x" id="scanClose" type="button" aria-label="Close">✕</button>
+        <button class="scan-x" id="scanClose" type="button" aria-label="Close">&#10005;</button>
       </div>
       <div class="scan-view">
         <video id="scanVideo" playsinline muted autoplay></video>
         <div class="scan-guide"><div class="scan-box"><i></i></div></div>
-        <div class="scan-msg" id="scanMsg">Starting camera…</div>
+        <div class="scan-msg" id="scanMsg">Starting camera...</div>
       </div>
       <div class="scan-tips" id="scanTips">
         <b>Door-jamb sticker:</b> fit the barcode inside the box. It scans automatically.<br>
@@ -274,7 +316,7 @@
       ui.querySelector("#scanTorch").classList.toggle("hidden", !caps.torch);
       if (caps.focusMode && caps.focusMode.includes("continuous")) await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
     } catch { /* optional */ }
-    msg("Point at the VIN barcode…");
+    msg("Point at the VIN barcode...");
     running = true;
     loop();
   }
@@ -284,12 +326,12 @@
     if (!busy && video.readyState >= 2 && video.videoWidth) {
       busy = true;
       try {
-        const r = await decodeSource(video, video.videoWidth, video.videoHeight, [{ w: 0.9, h: 0.45 }, null]);
+        const r = await decodeFrame(video);
         if (r && running) { finish(r); return; }
       } catch { /* keep scanning */ }
       busy = false;
     }
-    timer = setTimeout(loop, 180);
+    timer = setTimeout(loop, 120);
   }
 
   function finish(r) {
@@ -310,11 +352,11 @@
   async function runOcr(canvas) {
     const wasRunning = running; running = false; clearTimeout(timer);
     const btn = ui.querySelector("#scanOcr"); btn.disabled = true;
-    msg(window.Tesseract ? "Reading text…" : "Loading text reader (first time only, ~3 MB)…");
+    msg(window.Tesseract ? "Reading text..." : "Loading text reader (first time only, ~3 MB)...");
     try {
       const r = await ocrCanvas(canvas, (st, p) => {
-        if (/recogniz/i.test(st)) msg(`Reading text… ${Math.round(p * 100)}%`);
-        else if (/load|init/i.test(st)) msg(`Loading text reader… ${Math.round(p * 100)}%`);
+        if (/recogniz/i.test(st)) msg(`Reading text... ${Math.round(p * 100)}%`);
+        else if (/load|init/i.test(st)) msg(`Loading text reader... ${Math.round(p * 100)}%`);
       });
       if (r.vin) { finish(r); return; }
       msg("Couldn't find a VIN in the text. Move closer, avoid glare, and try again.", "err");
@@ -329,7 +371,7 @@
     e.target.value = "";
     if (!f) return;
     const wasRunning = running; running = false; clearTimeout(timer);
-    msg("Checking photo for a barcode…");
+    msg("Checking photo for a barcode...");
     try {
       const img = await loadImage(f);
       const r = await decodeImage(img);

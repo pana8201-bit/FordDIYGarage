@@ -1,8 +1,8 @@
 /* Offline support for DIY Garage.
    Network-first: always try to fetch the latest files (so data updates pushed to
    GitHub show up), fall back to cache when offline. Bump CACHE on each release. */
-const CACHE = "diygarage-2026.11e";
-const ASSETS = ["./", "index.html", "styles.css", "data.js", "data-hd.js", "data-ford.js", "app.js", "icon.svg", "manifest.webmanifest"];
+const CACHE = "diygarage-2026.11f";
+const ASSETS = ["./", "index.html", "styles.css", "zxing.min.js", "vin-scan.js", "data.js", "data-hd.js", "data-ford.js", "app.js", "icon.svg", "manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

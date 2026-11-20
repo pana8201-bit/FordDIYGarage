@@ -9,7 +9,7 @@
    Ford Workshop Manual, or motorcraftservice.com before final torque.
    ===================================================================== */
 
-const DATA_VERSION = "2026.11e";
+const DATA_VERSION = "2026.11f";
 
 /* ---------------------------------------------------------------------
    GENERATIONS - chassis-level specs shared by every engine in the range

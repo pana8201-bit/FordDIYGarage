@@ -21,6 +21,14 @@ VIN decoder:
 - It checks the format, the check digit (9th character) and the model year offline, then decodes with NHTSA's free public vPIC API (`vpic.nhtsa.dot.gov`, no key needed). The VIN is sent only to NHTSA.
 - NHTSA data can be incomplete, especially for older trucks. When more than one engine fits, or details are missing, the app flags the match as **CHECK ENGINE** or **PARTIAL MATCH** so you can confirm the selections.
 
+Camera VIN scan (📷 **SCAN VIN WITH CAMERA**):
+- **Door-jamb barcode:** point the phone at the VIN barcode on the driver door-jamb sticker and it scans automatically. Uses the phone's built-in barcode detector when there is one, otherwise ZXing (`zxing.min.js`, bundled). Decoding happens on the phone.
+- **Windshield VIN plate (no barcode):** tap **READ VIN TEXT** and text recognition (Tesseract.js, downloaded once the first time, about 3 MB) reads the VIN. Using the check digit and VIN rules, it fixes common misreads such as O→0, I→1, S→5 and B→8, then tells you to compare the result with the vehicle.
+- **PHOTO:** take or choose a photo instead of using the live camera. Works when camera access is blocked.
+- **LIGHT:** turns on the flashlight on phones that support it.
+- The scanned VIN goes straight into the decoder, which selects the matching vehicle.
+- The camera needs https (GitHub Pages is fine). On iPhone, use Safari or the Home Screen app and allow camera access.
+
 Trackers:
 - **Service log:** counts down to the next oil change, shows schedule status for every item, sends reminder notifications and creates calendar (`.ics`) alerts
 - **Expense tracker:** logs mods, maintenance, repairs, parts, tools, tires, accessories and more. Shows totals by period, a category breakdown, mods vs. maintenance spend and lifetime cost per mile, with CSV export. Costs entered on service records are included automatically.
@@ -49,7 +57,9 @@ Then open http://localhost:8150
 | `data.js` | F-150 spec database + maintenance schedule |
 | `data-hd.js` | F-250 / F-350 spec database (loaded after `data.js`) |
 | `data-ford.js` | Current US Ford lineup + vehicle catalog (loaded last) |
-| `app.js` | Selector, spec sheet, service tracker, expenses, reminders |
+| `app.js` | Selector, VIN decoder, spec sheet, service tracker, expenses, reminders |
+| `vin-scan.js` | Camera / photo VIN scanner (barcode + text recognition) |
+| `zxing.min.js` | ZXing barcode library (Apache-2.0) - see `THIRD-PARTY-NOTICES.md` |
 | `sw.js` | Offline cache (network-first). **Bump `CACHE` on each release.** |
 | `manifest.webmanifest`, `icon.svg` | PWA install metadata |
 
