@@ -8,7 +8,8 @@ A quick-reference app for doing your own work on **current US Ford vehicles**, p
 - **Filters:** engine air, cabin air and fuel filter P/Ns (including diesel filter / water separator)
 - **Driveline:** front and rear differentials, transfer case, and the power transfer unit (PTU) / rear drive unit (RDU) on AWD crossovers
 - **Chassis:** lug nut torque, bolt pattern, washer fluid, coolant, brake fluid
-- **DIY maintenance schedule:** intervals for each owner-serviceable item, with severe-duty notes
+- **Wiper blades:** driver, passenger and rear sizes, the arm connector type, the blade styles that fit, and how confident the data is
+- **Maintenance schedule:** Ford's **normal** and **severe-duty** intervals for each owner-serviceable item, including Ford's "first change, then every …" coolant rule. Each item is labelled with its Ford source and how sure it is (see below)
 
 Coverage:
 - **F-150:** 1990-present, gas, hybrid, 3.0L diesel and Lightning EV
@@ -28,6 +29,17 @@ Camera VIN scan (📷 **SCAN VIN WITH CAMERA**):
 - **LIGHT:** turns on the flashlight on phones that support it.
 - The scanned VIN goes straight into the decoder, which selects the matching vehicle.
 - The camera needs https (GitHub Pages is fine). On iPhone, use Safari or the Home Screen app and allow camera access.
+
+Maintenance intervals - sources and customizing (`schedule.js`):
+- Intervals come from these Ford documents (fordservicecontent.com): the **2021, 2018 and 2012 F-150** owner's manuals, the **2004/2007 and 2009/2010 Scheduled Maintenance Guides**, the **2020 Super Duty** owner's manual and the **2022 Maverick** owner's manual.
+- Every item shows how sure it is:
+  - **FORD MANUAL:** read from the Ford document for that exact model and year.
+  - **FORD · NEARBY YEAR:** from the same model's manual for an adjacent year.
+  - **FORD COMMON SCHEDULE:** Ford's standard modern schedule; this vehicle's own manual hasn't been checked yet (most non-F-Series models).
+  - **NOT A FORD ITEM:** Ford doesn't schedule it (e.g. a yearly battery test), or no Ford value was found (e.g. pre-1997 trucks).
+- Oil on 2011+ vehicles follows Ford's Intelligent Oil-Life Monitor rule: change when the monitor says so, never more than 1 year / 10,000 mi. The tracker reminds you at that maximum unless you set your own interval.
+- **MY RIDE → Maintenance intervals:** switch between Ford's **Normal** and **Severe duty** schedules. Type your own miles and/or months for any item, or tap **FORD** to go back to Ford's value. Custom intervals drive the reminders, the Service tab and the spec sheet. Saving a different vehicle resets them.
+- The Service tab lists **other maintenance** that is overdue or due soon, based on your log.
 
 Trackers:
 - **Service log:** counts down to the next oil change, shows schedule status for every item, sends reminder notifications and creates calendar (`.ics`) alerts
@@ -58,6 +70,7 @@ Then open http://localhost:8150
 | `data-hd.js` | F-250 / F-350 spec database (loaded after `data.js`) |
 | `data-ford.js` | Current US Ford lineup + vehicle catalog (loaded last) |
 | `app.js` | Selector, VIN decoder, spec sheet, service tracker, expenses, reminders |
+| `schedule.js` | Ford maintenance schedule (normal/severe, sources, confidence) + wiper blade data |
 | `vin-scan.js` | Camera / photo VIN scanner (barcode + text recognition) |
 | `zxing.min.js` | ZXing barcode library (Apache-2.0) - see `THIRD-PARTY-NOTICES.md` |
 | `sw.js` | Offline cache (network-first). **Bump `CACHE` on each release.** |

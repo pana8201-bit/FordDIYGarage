@@ -9,7 +9,7 @@
    Ford Workshop Manual, or motorcraftservice.com before final torque.
    ===================================================================== */
 
-const DATA_VERSION = "2026.11f";
+const DATA_VERSION = "2026.11g";
 
 /* ---------------------------------------------------------------------
    GENERATIONS - chassis-level specs shared by every engine in the range
@@ -472,51 +472,7 @@ function driveComps(c) {
   return o[c.drive] || DEFAULT_COMPONENTS[c.drive] || [];
 }
 
-const SCHEDULE = [
-  { type: "Oil & Filter Change", mi: (c) => c.eng.intervalMi, mo: (c) => c.eng.intervalMo,
-    severe: (c) => (c.year >= 2011
-      ? "Follow the Intelligent Oil-Life Monitor message, but shorten to 3,000-5,000 mi when towing or idling a lot"
-      : "Every 3,000 mi or 3 months when towing, idling a lot, on dusty roads, or making short trips"),
-    when: (c) => !c.eng.isEV },
-  { type: "Tire Rotation", mi: () => 7500, mo: () => null, severe: "Every 5,000 mi",
-    when: () => true },
-  { type: "Engine Air Filter", mi: () => 30000, mo: () => null, severe: "Every 15,000 mi or sooner in dusty conditions - inspect at each oil change",
-    part: (c) => c.eng.airFilter ?? c.gen.airFilter, when: (c) => !c.eng.isEV },
-  { type: "Cabin Air Filter", mi: () => 20000, mo: () => 24, severe: "Every 10,000-15,000 mi in dusty conditions",
-    part: (c) => c.gen.cabinFilter, when: (c) => !/^Not equipped/.test(c.gen.cabinFilter || "") },
-  { type: "Fuel Filter", mi: (c) => c.eng.fuelFilterMi ?? c.gen.fuelFilterMi, mo: () => null,
-    part: (c) => c.eng.fuelFilter || c.gen.fuelFilter,
-    when: (c) => !!(c.eng.fuelFilterMi ?? c.gen.fuelFilterMi) },
-  { type: "Spark Plugs", mi: (c) => c.eng.plugMi, mo: () => null, part: (c) => c.eng.plug,
-    when: (c) => !!c.eng.plugMi },
-  { type: "Brake Fluid", mi: () => null, mo: (c) => c.gen.brakeMo || 36, part: (c) => c.gen.brakeFluid,
-    when: () => true },
-  { type: "Coolant Flush", mi: (c) => c.gen.coolantMi, mo: (c) => c.gen.coolantMo, part: (c) => c.gen.coolant,
-    severe: (c) => c.gen.coolantNote, when: (c) => !c.eng.isEV },
-  { type: "Transmission Fluid", mi: (c) => (c.year >= 2009 ? 150000 : 60000), mo: () => null, part: (c) => c.trans.fluid,
-    severe: (c) => (c.year >= 2009 ? "Severe/towing: about every 30,000-60,000 mi" : "Severe/towing: every 30,000 mi"),
-    when: (c) => c.trans.type !== "EV" },
-  { type: "Rear Differential Fluid", mi: (c) => (c.year >= 2011 ? 150000 : 100000), mo: () => null, part: (c) => c.gen.rearAxle,
-    severe: "Towing, off-road, or after the axle has been under water: every 30,000 mi",
-    when: (c) => driveComps(c).includes("rear") },
-  { type: "Front Differential Fluid", mi: (c) => (c.year >= 2011 ? 150000 : 100000), mo: () => null, part: (c) => c.gen.frontDiff,
-    severe: "Off-road or after the axle has been under water: every 30,000 mi",
-    when: (c) => driveComps(c).includes("front") },
-  { type: "Transfer Case Fluid", mi: (c) => (c.year >= 2011 ? 150000 : 60000), mo: () => null, part: (c) => c.gen.transferCase,
-    severe: "Severe/off-road: every 30,000-60,000 mi",
-    when: (c) => driveComps(c).includes("tcase") },
-  { type: "PTU Fluid", mi: () => 150000, mo: () => null, part: (c) => c.gen.ptu,
-    severe: "Towing or frequent AWD use: every 30,000-60,000 mi",
-    when: (c) => driveComps(c).includes("ptu") },
-  { type: "Rear Drive Unit Fluid", mi: () => 150000, mo: () => null, part: (c) => c.gen.rdu,
-    severe: "Towing or frequent AWD use: every 30,000-60,000 mi",
-    when: (c) => driveComps(c).includes("rdu") },
-  { type: "Drive Belt", mi: () => 150000, mo: () => null, severe: "Inspect at every oil change after 60,000 mi",
-    when: (c) => !c.eng.isEV },
-  { type: "Wiper Blades", mi: () => null, mo: () => 12, when: () => true },
-  { type: "Battery Test", mi: () => null, mo: () => 12, severe: "Load-test it every year once the battery is 3+ years old",
-    when: () => true }
-];
+/* The maintenance schedule (SCHEDULE / fordItem) lives in schedule.js. */
 
 /* Service types for the tracker */
 const SERVICE_TYPES = [

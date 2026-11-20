@@ -12,7 +12,9 @@
     truck: null,              // {model, year, engine, trans, drive}
     name: "", vin: "",
     odo: null,
-    settings: { mi: null, mo: null, warn: 500 },
+    settings: { warn: 500 },
+    schedMode: "normal",       // "normal" | "severe"
+    intervals: {},             // per-item custom intervals { oil: {mi, mo}, ... }
     log: [],
     expenses: [],
     lastNotified: null
@@ -27,6 +29,12 @@
       const s = Object.assign(base, d, { settings: Object.assign(base.settings, d.settings || {}) });
       if (s.truck && !s.truck.model) s.truck.model = "F-150";
       if (!Array.isArray(s.expenses)) s.expenses = [];
+      if (!s.intervals || typeof s.intervals !== "object") s.intervals = {};
+      // migrate the old single oil-interval setting to a custom oil interval
+      if (s.settings.mi || s.settings.mo) {
+        if (!s.intervals.oil) s.intervals.oil = { mi: +s.settings.mi || null, mo: +s.settings.mo || null, migrated: true };
+        delete s.settings.mi; delete s.settings.mo;
+      }
       return s;
     } catch { return base; }
   }
@@ -131,12 +139,14 @@
     $("#selTrans").onchange = (e) => { sel.trans = e.target.value; renderSpecs(); };
     $("#selModel").onchange = (e) => { setModel(e.target.value); refreshAll(); };
     $("#btnSaveTruck").onclick = () => {
-      const prev = S.truck && engById(S.truck.engine);
+      const prev = S.truck;
       S.truck = { ...sel };
-      const e = engById(sel.engine);
-      // reset the oil interval when the engine changes (e.g. gas -> diesel)
-      if (S.settings.mi == null || !prev || prev.id !== e.id) { S.settings.mi = e.intervalMi; S.settings.mo = e.intervalMo; }
-      save(); renderAll(); toast(`Saved ${truckLabel(sel)} as your vehicle`);
+      // a different vehicle -> its own Ford schedule; drop custom intervals
+      const changed = prev && (prev.model !== sel.model || prev.engine !== sel.engine || prev.year !== sel.year);
+      const hadCustom = Object.keys(S.intervals || {}).length > 0;
+      if (changed && hadCustom) S.intervals = {};
+      save(); renderAll();
+      toast(`Saved ${truckLabel(sel)} as your vehicle${changed && hadCustom ? " - custom intervals reset to Ford" : ""}`);
     };
   }
 
@@ -420,7 +430,7 @@
         <div class="kpi"><div class="k">LUG NUT TORQUE</div><div class="v">${esc(g.lugTorque.split(" (")[0])}</div></div>
         <div class="kpi"><div class="k">WASHER FLUID</div><div class="v">${esc(g.washer)}</div></div>
         <div class="kpi"><div class="k">DRIVE</div><div class="v">${esc(sel.drive)}</div></div>
-        <div class="kpi"><div class="k">INTERVAL</div><div class="v">${fmtMi(e.intervalMi)} mi</div></div>
+        <div class="kpi"><div class="k">TIRE ROTATION</div><div class="v">${(() => { const r = scheduleFor({ ...ctx, model: sel.model }).find((x) => x.id === "rot"); return r ? fmtIv(effInterval(r, ctx, 1)) : "-"; })()}</div></div>
       </div>` : `
       <div class="hero">
         <div class="kpi"><div class="k">OIL CAPACITY</div><div class="v">${esc(short(e.oilCap))}</div></div>
@@ -521,6 +531,23 @@
         </table>
       </div>`;
 
+    const w = wipersFor(g, sel.year);
+    const wConf = w ? ({ high: "Sources agree", medium: "One good source / minor conflict", low: "Sources disagree - measure your blades" })[w.conf] : "";
+    const wiperCard = `
+      <div class="card">
+        <div class="card-h"><span class="sec">SEC 07B</span> WIPER BLADES</div>
+        ${w ? `<table class="spec">
+          ${row("Driver side", inch(w.d), { big: true, flag: w.conf === "low" })}
+          ${row("Passenger side", inch(w.p), { big: true, flag: w.conf === "low" })}
+          ${row("Rear", w.r ? inch(w.r) : "None", { flag: !!w.r && /confirm/i.test(String(w.r)) })}
+          ${row("Arm connector", w.conn, { flag: /disagree|differ/i.test(w.conn) })}
+          ${row("Blade styles that fit", wiperStyles(w))}
+          ${row("Data confidence", wConf)}
+        </table>
+        ${w.note || w.alt ? `<p class="hint" style="margin-bottom:12px">${esc([w.note, w.alt].filter(Boolean).join(" "))}</p>` : ""}
+        <p class="hint" style="margin-bottom:12px">Sizes come from blade-maker guides (Rain-X / Bosch / Trico), retailer fitment lists and Motorcraft part listings. If in doubt, measure the old blade tip to tip.</p>`
+          : `<p class="hint" style="margin-bottom:12px">Wiper size not available for this vehicle yet - measure the old blade tip to tip.</p>`}
+      </div>`;
     const schedCard = renderSchedule(ctx);
     const prelim = g.preliminary ? `
       <div class="prelim">⚠ <b>PRELIMINARY DATA.</b> Specs for the ${esc(sel.model)} were added recently and are incomplete.
@@ -533,12 +560,15 @@
         <ul class="notes">${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
       </div>` : "";
 
+    setTimeout(() => $$("#segSched button").forEach((b) => (b.onclick = () => {
+      S.schedMode = b.dataset.v; S.lastNotified = null; save(); renderAll();
+    })), 0);
     $("#specOut").innerHTML = `${prelim}
       <div class="card">
         <div class="card-h"><span class="sec">SUMMARY</span> ${sel.year} ${sel.model} · ${esc(e.name)} · ${sel.drive.toUpperCase()}</div>
         ${hero}
       </div>
-      ${engineCard}${transCard}${fuelCard}${filterCard}${diffCard}${chassisCard}${schedCard}${notesCard}`;
+      ${engineCard}${transCard}${fuelCard}${filterCard}${diffCard}${chassisCard}${wiperCard}${schedCard}${notesCard}`;
 
     $$("#specOut .copy").forEach((b) => (b.onclick = () => {
       navigator.clipboard?.writeText(b.dataset.copy).then(() => toast(`Copied ${b.dataset.copy}`));
@@ -553,29 +583,55 @@
     return S.truck && (S.truck.model || "F-150") === sel.model && S.truck.year === c.year && S.truck.engine === c.eng.id && S.truck.trans === c.trans.id && S.truck.drive === c.drive;
   }
 
-  function scheduleStatus(item, c) {
-    const mi = resolve(item.mi, c), mo = resolve(item.mo, c);
-    if (!isMyTruck(c)) return { mi, mo };
-    const last = S.log.filter((l) => normType(l.type) === item.type)
-      .sort((a, b) => b.date.localeCompare(a.date) || b.miles - a.miles)[0];
-    if (!last) return { mi, mo, never: true };
+  // Interval in effect for one item: the user's custom value, or Ford's
+  // normal / severe value. `logCount` picks Ford's "first" vs "then every".
+  function effInterval(item, c, logCount) {
+    const f = item.ford, cust = (S.intervals || {})[item.id];
+    const sevMode = S.schedMode === "severe" && f.s;
+    const base = sevMode ? f.s : (f.first && !logCount ? f.first : f.n);
+    if (cust && (cust.mi || cust.mo)) {
+      return { mi: cust.mi || null, mo: cust.mo || null, src: "custom", ford: base, sev: !!sevMode };
+    }
+    return { mi: base.mi, mo: base.mo, src: sevMode ? "severe" : f.first && !logCount ? "first" : "normal", ford: base, sev: !!sevMode };
+  }
+  const fmtIv = (iv) => [iv.mi ? `${fmtMi(iv.mi)} mi` : null, iv.mo ? `${iv.mo % 12 === 0 && iv.mo >= 12 ? iv.mo / 12 + " yr" : iv.mo + " mo"}` : null].filter(Boolean).join(" / ") || "Inspect";
+
+  function myCtx() {
+    if (!S.truck) return null;
+    const g = genFor(S.truck.year, S.truck.model || "F-150"), e = engById(S.truck.engine), t = trById(S.truck.trans);
+    if (!g || !e || !t) return null;
+    return { year: S.truck.year, gen: g, eng: e, trans: t, drive: S.truck.drive, model: S.truck.model || "F-150" };
+  }
+
+  function scheduleStatus(item, c, mineOverride) {
+    const logs = S.log.filter((l) => normType(l.type) === item.type).sort((a, b) => b.date.localeCompare(a.date) || b.miles - a.miles);
+    const ivl = effInterval(item, c, logs.length);
+    const mi = ivl.mi, mo = ivl.mo;
+    if (!(mineOverride ?? isMyTruck(c))) return { mi, mo, ivl };
+    const last = logs[0];
+    if (!last) return { mi, mo, ivl, never: true };
+    const warnMi = Math.max(+S.settings.warn || 0, mi ? mi * 0.1 : 0);
     const odo = S.odo != null ? Math.max(S.odo, last.miles) : last.miles;
     const miLeft = mi ? last.miles + mi - odo : null;
     const dueDate = mo ? addMonths(last.date, mo) : null;
     const dLeft = dueDate ? Math.ceil((dueDate - new Date()) / 864e5) : null;
     const over = (miLeft != null && miLeft <= 0) || (dLeft != null && dLeft <= 0);
-    const soon = !over && ((miLeft != null && miLeft <= Math.max(500, mi * 0.1)) || (dLeft != null && dLeft <= 30));
-    return { mi, mo, last, miLeft, dueDate, dLeft, lvl: over ? "bad" : soon ? "warn" : "ok", dueMi: mi ? last.miles + mi : null };
+    const soon = !over && ((miLeft != null && miLeft <= warnMi) || (dLeft != null && dLeft <= 30));
+    return { mi, mo, ivl, last, miLeft, dueDate, dLeft, lvl: over ? "bad" : soon ? "warn" : "ok", dueMi: mi ? last.miles + mi : null };
   }
 
   function renderSchedule(c) {
     const mine = isMyTruck(c);
-    const items = SCHEDULE.filter((s) => s.when(c));
+    const items = scheduleFor({ ...c, model: sel.model });
+    const sevOn = S.schedMode === "severe";
     const rows = items.map((s) => {
       const st = scheduleStatus(s, c);
-      const every = [st.mi ? `${fmtMi(st.mi)} mi` : null, st.mo ? `${st.mo} mo` : null].filter(Boolean).join(" / ") || "Inspect";
+      const f = s.ford, ivl = st.ivl;
       const part = s.part ? resolve(s.part, c) : "";
-      const sev = s.severe ? resolve(s.severe, c) : "";
+      const tag = ivl.src === "custom" ? `<span class="itag cust">YOUR INTERVAL</span>` : ivl.sev ? `<span class="itag sev">SEVERE</span>` : "";
+      const fordLine = ivl.src === "custom"
+        ? `Ford: ${fmtIv(f.n)}${f.s ? " · severe " + fmtIv(f.s) : ""}`
+        : f.first ? `Ford: first at ${fmtIv(f.first)}, then every ${fmtIv(f.n)}` : f.s && !ivl.sev ? `Severe: ${fmtIv(f.s)}` : ivl.sev ? `Normal: ${fmtIv(f.n)}` : "";
       let status = "";
       if (mine) {
         if (st.never) status = `<span class="chip">NOT LOGGED</span>`;
@@ -588,78 +644,117 @@
         }
       }
       return `<li>
-        <div class="sx-h"><b>${esc(s.type)}</b><span class="every">${every}</span></div>
+        <div class="sx-h"><b>${esc(s.type)}</b><span class="every">${fmtIv(ivl)}</span></div>
+        <div class="srcline">${tag}<span class="conf ${f.conf}">${CONF_LABEL[f.conf]}</span> <span class="srcname">${esc(SCHED_SOURCES[f.src] || "")}</span></div>
+        ${fordLine ? `<div class="sub">${esc(fordLine)}</div>` : ""}
         ${part ? `<div class="sub">${esc(part)}</div>` : ""}
-        ${sev ? `<div class="sub sev">Severe duty: ${esc(sev)}</div>` : ""}
+        ${f.note ? `<div class="sub sev">${esc(f.note)}</div>` : ""}
+        ${(f.sNote && (sevOn || f.s)) ? `<div class="sub sev">Severe: ${esc(f.sNote)}</div>` : ""}
         ${status}
       </li>`;
     }).join("");
     return `
       <div class="card">
-        <div class="card-h"><span class="sec">SEC 08</span> DIY MAINTENANCE SCHEDULE</div>
-        <p class="hint">Ford "normal" schedule. Replace at whichever comes first, miles or months.
-          ${mine ? "Status comes from your Service Log." : "Tap <b>★ SAVE AS MINE</b> to see how each item compares with your Service Log."}</p>
+        <div class="card-h"><span class="sec">SEC 08</span> MAINTENANCE SCHEDULE</div>
+        <div class="seg schedseg" id="segSched">
+          <button data-v="normal" class="${sevOn ? "" : "on"}">NORMAL</button><button data-v="severe" class="${sevOn ? "on" : ""}">SEVERE DUTY</button>
+        </div>
+        <p class="hint">${sevOn ? esc(SEVERE_DEF) + " Items without a Ford severe interval use the normal one." : "Ford's normal schedule."}
+          Whichever comes first, miles or months. ${mine ? "Status comes from your Service Log. Change any interval in <b>MY RIDE → Maintenance intervals</b>." : "Tap <b>★ SAVE AS MINE</b> to track these against your Service Log and set your own intervals."}</p>
         <ul class="sched">${rows}</ul>
+        <p class="hint" style="margin-bottom:12px"><b>Labels:</b> FORD MANUAL = taken from the Ford document for this model and year · FORD · NEARBY YEAR = same model, adjacent year ·
+          FORD COMMON SCHEDULE = Ford's standard schedule; this vehicle's manual wasn't checked · NOT A FORD ITEM = Ford doesn't schedule it. Always check your own Owner's Manual or ford.com/support/maintenance-schedule.</p>
       </div>`;
   }
 
   // ---------------- service tracker ----------------
-  function primaryService() {
-    const e = S.truck && engById(S.truck.engine);
-    return e && e.isEV ? "Tire Rotation" : "Oil & Filter Change";
+  function primaryItem() {
+    const c = myCtx();
+    if (!c) return null;
+    const items = scheduleFor(c);
+    return items.find((x) => x.id === (c.eng.isEV ? "rot" : "oil")) || null;
   }
+  function primaryService() { const p = primaryItem(); return p ? p.type : "Oil & Filter Change"; }
 
   function computeDue() {
     if (!S.truck) return null;
+    const pi = primaryItem();
     const type = primaryService();
     const last = S.log.filter((l) => normType(l.type) === type).sort((a, b) => b.miles - a.miles || b.date.localeCompare(a.date))[0];
     if (!last) return { type, none: true };
-    const mi = +S.settings.mi, mo = +S.settings.mo, warn = +S.settings.warn || 0;
-    const dueMiles = last.miles + mi;
-    const dueDate = addMonths(last.date, mo);
+    const ivl = pi ? effInterval(pi, myCtx(), 1) : { mi: 5000, mo: 6 };
+    const mi = +ivl.mi || 0, mo = +ivl.mo || 0, warn = +S.settings.warn || 0;
+    const dueMiles = mi ? last.miles + mi : Infinity;
+    const dueDate = mo ? addMonths(last.date, mo) : new Date(8.64e15);
     const odo = S.odo != null ? Math.max(S.odo, last.miles) : last.miles;
     const milesLeft = dueMiles - odo;
     const daysLeft = Math.ceil((dueDate - new Date()) / 864e5);
     const totalDays = Math.max(1, Math.round((dueDate - new Date(last.date + "T12:00:00")) / 864e5));
     const lvl = (left, w) => (left <= 0 ? "bad" : left <= w ? "warn" : "ok");
     return {
-      type, last, dueMiles, dueDate, milesLeft, daysLeft,
-      miPct: Math.min(100, Math.max(0, ((odo - last.miles) / mi) * 100)),
-      dPct: Math.min(100, Math.max(0, ((totalDays - daysLeft) / totalDays) * 100)),
-      miLvl: lvl(milesLeft, warn), dLvl: lvl(daysLeft, 14)
+      type, last, dueMiles, dueDate, milesLeft, daysLeft, ivl, hasMi: !!mi, hasMo: !!mo,
+      miPct: mi ? Math.min(100, Math.max(0, ((odo - last.miles) / mi) * 100)) : 0,
+      dPct: mo ? Math.min(100, Math.max(0, ((totalDays - daysLeft) / totalDays) * 100)) : 0,
+      miLvl: mi ? lvl(milesLeft, warn) : "ok", dLvl: mo ? lvl(daysLeft, 14) : "ok"
     };
+  }
+
+  // Other maintenance items that are overdue or due soon (Service tab)
+  function renderUpcoming() {
+    const box = $("#upcoming");
+    const c = myCtx();
+    if (!c) { box.innerHTML = `<div class="empty">Save your vehicle to see its maintenance status.</div>`; return []; }
+    const prim = primaryService();
+    const rows = scheduleFor(c).filter((s) => s.type !== prim).map((s) => ({ s, st: scheduleStatus(s, c, true) }));
+    const due = rows.filter((r) => r.st.lvl === "bad" || r.st.lvl === "warn")
+      .sort((a, b) => (a.st.lvl === b.st.lvl ? 0 : a.st.lvl === "bad" ? -1 : 1));
+    const never = rows.filter((r) => r.st.never).length;
+    box.innerHTML = (due.length ? `<ul class="sched">${due.map(({ s, st }) => {
+      const bits = [];
+      if (st.dueMi) bits.push(st.miLeft <= 0 ? `${fmtMi(-st.miLeft)} mi over` : `${fmtMi(st.miLeft)} mi left`);
+      if (st.dueDate) bits.push(st.dLeft <= 0 ? "date passed" : `${st.dLeft} days left`);
+      return `<li><div class="sx-h"><b>${esc(s.type)}</b><span class="chip ${st.lvl}">${st.lvl === "bad" ? "OVERDUE" : "DUE SOON"}</span></div>
+        <div class="sub">Every ${fmtIv(st.ivl)} · last ${fmtMi(st.last.miles)} mi · ${bits.join(" · ")}</div></li>`;
+    }).join("")}</ul>` : `<div class="empty">Nothing else is overdue or due soon.</div>`) +
+      (never ? `<p class="hint" style="margin-bottom:12px">${never} item${never > 1 ? "s haven't" : " hasn't"} been logged yet, so ${never > 1 ? "they aren't" : "it isn't"} tracked. Log the last time you did ${never > 1 ? "them" : "it"} to start tracking.</p>` : "");
+    return due;
   }
 
   function renderDue() {
     const d = computeDue(), box = $("#nextDue"), ban = $("#dueBanner");
     ban.className = "banner hidden";
-    if (!S.truck) { box.innerHTML = `<div class="empty" style="grid-column:1/-1">Select your vehicle on the SPECS tab and tap <b>★ SAVE AS MINE</b>.</div>`; return; }
-    if (d.none) { box.innerHTML = `<div class="empty" style="grid-column:1/-1">No ${esc(d.type)} logged yet. Record your last one below to start reminders.</div>`; return; }
+    if (!S.truck) { box.innerHTML = `<div class="empty" style="grid-column:1/-1">Select your vehicle on the SPECS tab and tap <b>★ SAVE AS MINE</b>.</div>`; renderUpcoming(); return; }
+    if (d.none) { box.innerHTML = `<div class="empty" style="grid-column:1/-1">No ${esc(d.type)} logged yet. Record your last one below to start reminders.</div>`; renderUpcoming(); return; }
 
     box.innerHTML = `
-      <div class="gauge ${d.miLvl}">
+      ${d.hasMi ? `<div class="gauge ${d.miLvl}">
         <div class="k">MILES REMAINING</div>
         <div class="v">${d.milesLeft <= 0 ? "OVERDUE" : fmtMi(d.milesLeft)}</div>
         <div class="s">due @ ${fmtMi(d.dueMiles)} mi</div>
         <div class="bar"><i style="width:${d.miPct}%"></i></div>
-      </div>
-      <div class="gauge ${d.dLvl}">
+      </div>` : ""}
+      ${d.hasMo ? `<div class="gauge ${d.dLvl}">
         <div class="k">DAYS REMAINING</div>
         <div class="v">${d.daysLeft <= 0 ? "OVERDUE" : d.daysLeft}</div>
         <div class="s">due ${d.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
         <div class="bar"><i style="width:${d.dPct}%"></i></div>
-      </div>
+      </div>` : ""}
       <div class="s" style="grid-column:1/-1;font-size:11px;color:var(--muted);text-align:center">
-        ${esc(d.type)} · whichever comes first: ${fmtMi(S.settings.mi)} mi or ${S.settings.mo} months · last @ ${fmtMi(d.last.miles)} mi on ${fmtDate(d.last.date)}
+        ${esc(d.type)} · every ${fmtIv(d.ivl)} (${d.ivl.src === "custom" ? "your interval" : d.ivl.sev ? "Ford severe duty" : "Ford normal"}) · last @ ${fmtMi(d.last.miles)} mi on ${fmtDate(d.last.date)}
       </div>`;
 
+    const others = renderUpcoming();
     const worst = [d.miLvl, d.dLvl].includes("bad") ? "bad" : [d.miLvl, d.dLvl].includes("warn") ? "warn" : null;
     if (worst) {
       ban.className = `banner ${worst}`;
       ban.innerHTML = worst === "bad"
-        ? `🛢 ${esc(d.type).toUpperCase()} OVERDUE - service your truck now.`
-        : `🛢 ${esc(d.type)} due soon - ${d.milesLeft > 0 ? fmtMi(d.milesLeft) + " mi" : ""}${d.milesLeft > 0 && d.daysLeft > 0 ? " / " : ""}${d.daysLeft > 0 ? d.daysLeft + " days" : ""} left.`;
+        ? `🛢 ${esc(d.type).toUpperCase()} OVERDUE - service your vehicle now.`
+        : `🛢 ${esc(d.type)} due soon - ${d.hasMi && d.milesLeft > 0 ? fmtMi(d.milesLeft) + " mi" : ""}${d.hasMi && d.hasMo && d.milesLeft > 0 && d.daysLeft > 0 ? " / " : ""}${d.hasMo && d.daysLeft > 0 ? d.daysLeft + " days" : ""} left.`;
       maybeNotify(d, worst);
+    } else if (others.some((o) => o.st.lvl === "bad")) {
+      const n = others.filter((o) => o.st.lvl === "bad").length;
+      ban.className = "banner bad";
+      ban.innerHTML = `🔧 ${n} maintenance item${n > 1 ? "s" : ""} overdue - see the SERVICE tab.`;
     }
   }
 
@@ -897,10 +992,48 @@
     }
     $("#setName").value = S.name || "";
     $("#setVin").value = S.vin || "";
-    $("#setMi").value = S.settings.mi ?? "";
-    $("#setMo").value = S.settings.mo ?? "";
     $("#setWarn").value = S.settings.warn ?? 500;
     $("#odoChip").textContent = S.odo != null ? `${fmtMi(S.odo)} mi` : "--- mi";
+    renderIntervals();
+  }
+
+  // Editable per-item intervals (MY RIDE tab)
+  function renderIntervals() {
+    const box = $("#ivList");
+    $$("#segMode button").forEach((b) => b.classList.toggle("on", b.dataset.v === (S.schedMode || "normal")));
+    const c = myCtx();
+    if (!c) { box.innerHTML = `<div class="empty">Save your vehicle on the SPECS tab first.</div>`; return; }
+    const items = scheduleFor(c);
+    box.innerHTML = `<ul class="ivl">${items.map((s) => {
+      const logs = S.log.filter((l) => normType(l.type) === s.type).length;
+      const ivl = effInterval(s, c, logs), f = s.ford, cust = (S.intervals || {})[s.id];
+      const fordTxt = f.first && !logs && !ivl.sev ? `first ${fmtIv(f.first)}, then ${fmtIv(f.n)}` : fmtIv(ivl.ford);
+      return `<li data-id="${s.id}">
+        <div class="sx-h"><b>${esc(s.type)}</b>${cust ? `<span class="itag cust">YOUR INTERVAL</span>` : `<span class="conf ${f.conf}">${CONF_LABEL[f.conf]}</span>`}</div>
+        <div class="sub">Ford ${ivl.sev ? "severe" : "normal"}: ${esc(fordTxt)}</div>
+        <div class="ivrow">
+          <label>MILES<input type="number" inputmode="numeric" min="0" step="500" class="ivmi" value="${cust ? cust.mi || "" : ""}" placeholder="${ivl.ford.mi ? ivl.ford.mi : "-"}"></label>
+          <label>MONTHS<input type="number" inputmode="numeric" min="0" class="ivmo" value="${cust ? cust.mo || "" : ""}" placeholder="${ivl.ford.mo ? ivl.ford.mo : "-"}"></label>
+          <button class="btn ghost ivreset" type="button" ${cust ? "" : "disabled"}>FORD</button>
+        </div>
+      </li>`;
+    }).join("")}</ul>`;
+    $$("#ivList li").forEach((li) => {
+      const id = li.dataset.id;
+      const commit = () => {
+        const mi = Math.max(0, Math.round(+li.querySelector(".ivmi").value || 0));
+        const mo = Math.max(0, Math.round(+li.querySelector(".ivmo").value || 0));
+        if (mi || mo) S.intervals[id] = { mi: mi || null, mo: mo || null };
+        else delete S.intervals[id];
+        S.lastNotified = null; save(); renderDue(); renderSpecs(); renderIntervals();
+        const f = scheduleFor(c).find((x) => x.id === id);
+        const fordMi = f && (S.schedMode === "severe" && f.ford.s ? f.ford.s.mi : f.ford.n.mi);
+        toast(mi && fordMi && mi > fordMi * 1.5 ? `Saved - note that's longer than Ford's ${fmtMi(fordMi)} mi` : mi || mo ? "Interval saved" : "Back to Ford's interval");
+      };
+      li.querySelector(".ivmi").onchange = commit;
+      li.querySelector(".ivmo").onchange = commit;
+      li.querySelector(".ivreset").onclick = () => { delete S.intervals[id]; save(); renderDue(); renderSpecs(); renderIntervals(); toast("Back to Ford's interval"); };
+    });
   }
 
   function bindSettings() {
@@ -909,16 +1042,17 @@
       const v = $("#setVin").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
       if (v !== (S.vin || "")) S.vinInfo = null;
       S.vin = v;
-      const mi = +$("#setMi").value, mo = +$("#setMo").value;
-      if (mi > 0) S.settings.mi = mi;
-      if (mo > 0) S.settings.mo = mo;
       S.settings.warn = Math.max(0, +$("#setWarn").value || 0);
       S.lastNotified = null; save(); renderAll(); toast("Settings saved");
     };
-    $("#btnDefaults").onclick = () => {
-      const e = S.truck && engById(S.truck.engine);
-      if (!e) return toast("Save a vehicle first");
-      $("#setMi").value = e.intervalMi; $("#setMo").value = e.intervalMo;
+    $$("#segMode button").forEach((b) => (b.onclick = () => {
+      S.schedMode = b.dataset.v; S.lastNotified = null; save(); renderAll();
+      toast(b.dataset.v === "severe" ? "Using Ford's severe-duty schedule" : "Using Ford's normal schedule");
+    }));
+    $("#btnResetAll").onclick = () => {
+      if (!Object.keys(S.intervals || {}).length) return toast("Already using Ford's intervals");
+      if (!confirm("Reset all your custom intervals to Ford's?")) return;
+      S.intervals = {}; save(); renderAll(); toast("All intervals reset to Ford");
     };
     $("#btnWipe").onclick = () => {
       if (!confirm("Erase your vehicle, settings, ALL service history and ALL expenses from this device?")) return;

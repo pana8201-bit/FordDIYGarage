@@ -338,9 +338,4 @@ ENGINES.push(
 ENGINES.forEach((e) => { e.models = e.models || ["F-150"]; e.isDiesel = /diesel/i.test(e.family); });
 GENERATIONS.forEach((g) => { g.models = g.models || ["F-150"]; });
 
-SCHEDULE.splice(5, 0, {
-  type: "Fuel/Water Separator Drain", mi: (c) => c.eng.intervalMi, mo: () => null,
-  severe: "Drain right away if the 'Water in Fuel' light or message comes on",
-  when: (c) => c.eng.isDiesel
-});
 SERVICE_TYPES.splice(5, 0, "Fuel/Water Separator Drain", "DEF Refill");

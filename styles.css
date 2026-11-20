@@ -206,6 +206,30 @@ body.scan-open{overflow:hidden}
 .scan-photo{text-align:center;cursor:pointer}
 @media (prefers-color-scheme: dark){ .vinscan{background:#13233f;color:#bcd7ff;border-color:#2a4a7a} }
 
+/* ---------- schedule sources / custom intervals ---------- */
+.schedseg{margin:10px 12px 0}
+.srcline{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:4px}
+.conf,.itag{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.8px;padding:1px 5px;border-radius:3px}
+.conf.confirmed{background:#e3f5ea;color:var(--ok)}
+.conf.inferred{background:#e8f1fd;color:#0b4fa0}
+.conf.assumed{background:#fff1cc;color:#7a5600}
+.conf.general{background:#eceff3;color:var(--muted)}
+.itag.cust{background:#1700F4;color:#fff} .itag.sev{background:#c77700;color:#fff}
+.srcname{font-size:10px;color:var(--muted)}
+.ivl{list-style:none;padding:0;margin:6px 12px 8px}
+.ivl li{border-bottom:1px solid #eef1f5;padding:10px 0}
+.ivl li:last-child{border-bottom:0}
+.ivrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end}
+.ivrow label{margin-top:6px}
+.ivrow input{padding:8px;font-family:var(--mono)}
+.ivrow .btn{width:auto;padding:9px 10px;margin-top:0;font-size:11px}
+.ivrow .btn:disabled{opacity:.35}
+.card > .seg{margin-left:12px;margin-right:12px}
+@media (prefers-color-scheme: dark){
+  .conf.confirmed{background:#0f2a1b} .conf.inferred{background:#13233f;color:#8cc4ff} .conf.assumed{background:#2a2110;color:#f3d79b} .conf.general{background:#1c2539}
+  .ivl li{border-color:#1c2539}
+}
+
 .prelim{background:#fff4e0;border:1px solid #e8c35a;border-left:6px solid var(--warn);color:#5c3b00;
   border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;line-height:1.45}
 .seg button{padding:10px 4px;font-size:13px}

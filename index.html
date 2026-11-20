@@ -91,6 +91,11 @@
       </div>
 
       <div class="card">
+        <div class="card-h"><span class="sec">SEC 10B</span> OTHER MAINTENANCE</div>
+        <div id="upcoming"></div>
+      </div>
+
+      <div class="card">
         <div class="card-h"><span class="sec">SEC 11</span> UPDATE ODOMETER</div>
         <div class="grid2">
           <label>CURRENT MILEAGE<input type="number" id="odoInput" inputmode="numeric" placeholder="e.g. 84250"></label>
@@ -183,16 +188,21 @@
           <button class="btn ghost" id="btnScanSaved" type="button">📷 SCAN VIN</button>
         </div>
       </div>
-      <div class="card">
-        <div class="card-h"><span class="sec">SEC 21</span> OIL CHANGE INTERVAL</div>
-        <p class="hint">Defaults are set per engine. Shorten them for "severe duty" (towing, idling, dusty roads, short trips, extreme heat or cold).</p>
         <div class="grid2">
-          <label>EVERY (MILES)<input type="number" id="setMi" inputmode="numeric"></label>
-          <label>OR EVERY (MONTHS)<input type="number" id="setMo" inputmode="numeric"></label>
           <label>REMIND ME EARLY (MILES)<input type="number" id="setWarn" inputmode="numeric" value="500"></label>
-          <label>&nbsp;<button class="btn ghost" id="btnDefaults">RESET TO ENGINE DEFAULT</button></label>
+          <label>&nbsp;<button class="btn" id="btnSaveSettings">SAVE</button></label>
         </div>
-        <button class="btn full" id="btnSaveSettings">SAVE SETTINGS</button>
+      </div>
+      <div class="card">
+        <div class="card-h"><span class="sec">SEC 21</span> MAINTENANCE INTERVALS</div>
+        <p class="hint">These start at Ford's schedule for your vehicle. Choose <b>SEVERE DUTY</b> if you tow, idle a lot, drive on dusty or off-road roads,
+          make short trips in freezing weather, or drive in extreme heat. To use your own interval, type miles and/or months
+          (whichever comes first). Clear both boxes or tap <b>FORD</b> to go back to Ford's interval.</p>
+        <label>SCHEDULE
+          <div class="seg" id="segMode"><button data-v="normal" class="on">NORMAL</button><button data-v="severe">SEVERE DUTY</button></div>
+        </label>
+        <div id="ivList"></div>
+        <button class="btn ghost full" id="btnResetAll" type="button">RESET ALL TO FORD</button>
       </div>
       <div class="card">
         <div class="card-h"><span class="sec">SEC 22</span> DATA</div>
@@ -216,6 +226,7 @@
   <script src="data.js"></script>
   <script src="data-hd.js"></script>
   <script src="data-ford.js"></script>
+  <script src="schedule.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
