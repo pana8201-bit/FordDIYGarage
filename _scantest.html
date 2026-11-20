@@ -1,0 +1,92 @@
+<!DOCTYPE html><html><body style="margin:0;background:#fff"><pre id="o">running...</pre>
+<canvas id="c" style="display:none"></canvas>
+<script src="zxing.min.js"></script>
+<script src="vin-scan.js"></script>
+<script>
+// ---- Code 39 generator (narrow=1, wide=3) ----
+const C39 = {"0":"nnnwwnwnn","1":"wnnwnnnnw","2":"nnwwnnnnw","3":"wnwwnnnnn","4":"nnnwwnnnw","5":"wnnwwnnnn","6":"nnwwwnnnn","7":"nnnwnnwnw","8":"wnnwnnwnn","9":"nnwwnnwnn",
+"A":"wnnnnwnnw","B":"nnwnnwnnw","C":"wnwnnwnnn","D":"nnnnwwnnw","E":"wnnnwwnnn","F":"nnwnwwnnn","G":"nnnnnwwnw","H":"wnnnnwwnn","I":"nnwnnwwnn","J":"nnnnwwwnn",
+"K":"wnnnnnnww","L":"nnwnnnnww","M":"wnwnnnnwn","N":"nnnnwnnww","O":"wnnnwnnwn","P":"nnwnwnnwn","Q":"nnnnnnwww","R":"wnnnnnwwn","S":"nnwnnnwwn","T":"nnnnwnwwn",
+"U":"wwnnnnnnw","V":"nwwnnnnnw","W":"wwwnnnnnn","X":"nwnnwnnnw","Y":"wwnnwnnnn","Z":"nwwnwnnnn","*":"nwnnwnwnn"};
+function code39(text, {mod=3, h=90, quiet=30, label=true, prefixI=false}={}){
+  const s = "*" + (prefixI?"I":"") + text + "*"; let w = quiet*2;
+  for (const ch of s){ for (const b of C39[ch]) w += b==="w"?mod*3:mod; w += mod; }
+  const c = document.createElement("canvas"); c.width = w; c.height = h + (label?30:0) + 20;
+  const x = c.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,c.width,c.height); x.fillStyle="#000";
+  let p = quiet;
+  for (const ch of s){ const pat=C39[ch]; for(let i=0;i<9;i++){ const bw = pat[i]==="w"?mod*3:mod; if(i%2===0) x.fillRect(p,10,bw,h); p+=bw; } p+=mod; }
+  if (label){ x.font="bold 20px monospace"; x.textAlign="center"; x.fillText((prefixI?"I":"")+text, c.width/2, h+34); }
+  return c;
+}
+// place barcode on a larger "sticker photo" with rotation / blur / noise
+function photo(bar, {rot=0, scale=1, blur=0, noise=0, W=1400, H=1000, bg="#d9d4c7"}={}){
+  const c = document.createElement("canvas"); c.width=W; c.height=H; const x=c.getContext("2d");
+  x.fillStyle=bg; x.fillRect(0,0,W,H);
+  x.fillStyle="#fff"; x.save(); x.translate(W/2,H/2); x.rotate(rot*Math.PI/180); x.scale(scale,scale);
+  x.fillRect(-bar.width/2-40,-bar.height/2-60,bar.width+80,bar.height+120);
+  x.fillStyle="#000"; x.font="bold 18px sans-serif"; x.fillText("MFD. BY FORD MOTOR CO.  GVWR 7050 LB", -bar.width/2, -bar.height/2-25);
+  if (blur) x.filter=`blur(${blur}px)`;
+  x.drawImage(bar,-bar.width/2,-bar.height/2); x.restore();
+  if (noise){ const d=x.getImageData(0,0,W,H); for(let i=0;i<d.data.length;i+=4){ const n=(Math.random()-.5)*noise; d.data[i]+=n; d.data[i+1]+=n; d.data[i+2]+=n; } x.putImageData(d,0,0); }
+  return c;
+}
+const toImg = (c) => new Promise(r=>{ const i=new Image(); i.onload=()=>r(i); i.src=c.toDataURL("image/png"); });
+const out=[]; let pass=0, fail=0;
+const ok=(cond,label)=>{ cond?pass++:fail++; out.push((cond?"PASS ":"FAIL ")+label); };
+
+(async () => {
+  const VS = window.VinScan;
+  // ---- 1. extractVin unit tests ----
+  const V = "1FTFW1ED2PFA12345";
+  const ex = (t) => { const r=VS.extractVin(t); return r ? r.vin+"/"+r.quality : "null"; };
+  ok(ex(V)==="1FTFW1ED2PFA12345/valid", "plain VIN -> "+ex(V));
+  ok(ex("I"+V)==="1FTFW1ED2PFA12345/valid", "Code39 'I' import prefix -> "+ex("I"+V));
+  ok(ex("VIN: "+V+"  GVWR 7050")==="1FTFW1ED2PFA12345/valid", "VIN inside sticker text -> "+ex("VIN: "+V+" GVWR 7050"));
+  ok(ex("1FTFW 1ED2P FA12 345")==="1FTFW1ED2PFA12345/valid", "OCR split with spaces -> "+ex("1FTFW 1ED2P FA12 345"));
+  ok(ex("1FTFW1ED2PFA1234S")==="1FTFW1ED2PFA12345/corrected", "OCR S->5 fixed by check digit -> "+ex("1FTFW1ED2PFA1234S"));
+  ok(ex("1FTFWIED2PFAI2345")==="1FTFW1ED2PFA12345/valid", "OCR I->1 forced -> "+ex("1FTFWIED2PFAI2345"));
+  ok(ex("1FTFW1ED2PFA0OOO1").endsWith("/unverified") || ex("1FTFW1ED2PFA0OOO1")==="null", "garbage gives unverified -> "+ex("1FTFW1ED2PFA0OOO1"));
+  ok(ex("hello world")==="null", "no VIN -> null");
+  ok(ex("1FTFW1ED8PFA12345").endsWith("/unverified") || ex("1FTFW1ED8PFA12345").endsWith("/corrected"), "wrong check digit -> "+ex("1FTFW1ED8PFA12345"));
+
+  // ---- 2. barcode photos (ZXing path; BarcodeDetector absent in desktop Edge) ----
+  out.push("native BarcodeDetector: "+("BarcodeDetector" in window));
+  const vins = ["1FTFW1ED2PFA12345","1FT8W3BT9NEA12345","3FMCR9C63MRA12345","1FA6P8CF7R5412345","1FTEF14YXSLA12345"];
+  const variants = [
+    ["straight", {}], ["rotated 8°", {rot:8}], ["rotated 90°", {rot:90}], ["upside-down 180°", {rot:180}],
+    ["small (scale .55)", {scale:.55}], ["blur 1px + noise", {blur:1, noise:40}], ["rotated -12° + noise", {rot:-12, noise:30}]
+  ];
+  for (const v of vins) for (const [name,opt] of variants){
+    if (v!==vins[0] && name!=="straight" && name!=="rotated 8°") continue; // keep the run short
+    const img = await toImg(photo(code39(v,{prefixI: v===vins[1]}), opt));
+    const t0=performance.now(); const r = await VS.decodeImage(img); const ms=Math.round(performance.now()-t0);
+    ok(r && r.vin===v, `Code39 ${v} ${name}: ${r? r.vin+" ("+r.method+", "+r.quality+")":"not found"} ${ms}ms`);
+  }
+  // QR / DataMatrix labels (some aftermarket / dealer labels)
+  try {
+    const Z=window.ZXing;
+    for (const [fmt,name] of [[Z.BarcodeFormat.QR_CODE,"QR"],[Z.BarcodeFormat.DATA_MATRIX,"DataMatrix"]]){
+      const m = new Z.MultiFormatWriter().encode(V, fmt, 300, 300, new Map());
+      const c=document.createElement("canvas"); c.width=m.getWidth()+80; c.height=m.getHeight()+80; const x=c.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,c.width,c.height); x.fillStyle="#000";
+      for(let yy=0;yy<m.getHeight();yy++)for(let xx=0;xx<m.getWidth();xx++) if(m.get(xx,yy)) x.fillRect(xx+40,yy+40,1,1);
+      const img=await toImg(photo(c,{rot:5}));
+      const r=await VS.decodeImage(img);
+      ok(r&&r.vin===V, `${name} label: ${r?r.vin:"not found"}`);
+    }
+  } catch(e){ out.push("QR/DM test error "+e); }
+  // negative: photo with no barcode
+  const blank = await toImg(photo(document.createElement("canvas"),{}));
+  const rn = await VS.decodeImage(blank); ok(!rn, "photo without barcode -> "+(rn?rn.vin:"none"));
+
+  // ---- 3. save a sample sticker image for the fake-camera test ----
+  window.__stickerPng = photo(code39("1FTFW1ED2PFA12345"),{rot:4, W:1280, H:720}).toDataURL("image/png");
+  // VIN-plate text image for OCR
+  const pc=document.createElement("canvas"); pc.width=1200; pc.height=300; const px=pc.getContext("2d");
+  px.fillStyle="#2b2b2b"; px.fillRect(0,0,1200,300); px.fillStyle="#c9c9c9"; px.fillRect(100,90,1000,120);
+  px.fillStyle="#111"; px.font="bold 78px 'Courier New', monospace"; px.textAlign="center"; px.fillText("1FTFW1ED2PFA12345", 600, 178);
+  window.__platePng = pc.toDataURL("image/png");
+
+  document.getElementById("o").textContent = `PASS ${pass} / FAIL ${fail}\n` + out.join("\n");
+  document.title = "done";
+})().catch(e => { document.getElementById("o").textContent = "ERROR " + e.stack; });
+</script></body></html>
