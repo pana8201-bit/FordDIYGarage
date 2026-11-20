@@ -16,6 +16,11 @@ Coverage:
 - **Current US lineup (current generation only, PRELIMINARY data):** Ranger (2024+), Maverick (2022+), Bronco (2021+), Bronco Sport (2021+), Explorer (2020+), Expedition (2025+), Mustang (2024+), Mustang Mach-E (2021+), Transit / E-Transit (2015+) and E-Series cutaway (2021+)
 - Not included because production has ended: Escape (final MY2026), Edge (2024), F-150 Lightning (2022-2025 is covered under F-150)
 
+VIN decoder:
+- Enter a 17-character VIN and the app works out the model, year, engine, transmission and drive type, then shows the matching specs. "Save as mine" stores the VIN along with the trim, body, GVWR and assembly plant.
+- It checks the format, the check digit (9th character) and the model year offline, then decodes with NHTSA's free public vPIC API (`vpic.nhtsa.dot.gov`, no key needed). The VIN is sent only to NHTSA.
+- NHTSA data can be incomplete, especially for older trucks. When more than one engine fits, or details are missing, the app flags the match as **CHECK ENGINE** or **PARTIAL MATCH** so you can confirm the selections.
+
 Trackers:
 - **Service log:** counts down to the next oil change, shows schedule status for every item, sends reminder notifications and creates calendar (`.ics`) alerts
 - **Expense tracker:** logs mods, maintenance, repairs, parts, tools, tires, accessories and more. Shows totals by period, a category breakdown, mods vs. maintenance spend and lifetime cost per mile, with CSV export. Costs entered on service records are included automatically.

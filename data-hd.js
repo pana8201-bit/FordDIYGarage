@@ -286,12 +286,12 @@ ENGINES.push(
     verify: ["filter", "drainTorque", "fuelFilter", "fuelFilterMi"] },
 
   // ---------------- Super Duty 2011-present ----------------
-  { id: "sd62", models: HD, name: "6.2L V8 (Boss) Gas", family: "Boss V8 (SOHC 2V)", years: [2011, 2019],
+  { id: "sd62", models: HD, name: "6.2L V8 (Boss) Gas", family: "Boss V8 (SOHC 2V)", years: [2011, 2022],
     oilCap: "7.0 qt (6.6 L)", oilVisc: "SAE 5W-20", oilSpec: "Ford WSS-M2C945-A",
     filter: "Motorcraft FL-820S", drainTorque: "≈ 20 lb-ft (27 N·m)",
     fuel: HD_R87 + " · E85 OK on Flex-Fuel builds", plug: HD_VIN + " - qty 16 (2 per cylinder)", gap: "≈ 0.050 in (1.3 mm)", plugMi: 100000,
-    trans: ["6r140"], intervalMi: 7500, intervalMo: 6,
-    notes: ["Follow the Intelligent Oil-Life Monitor (IOLM). Shorten intervals when towing heavy."],
+    trans: ["6r140", "10r140"], transYears: { "6r140": [2011, 2019], "10r140": [2020, 2022] }, intervalMi: 7500, intervalMo: 6,
+    notes: ["Follow the Intelligent Oil-Life Monitor (IOLM). Shorten intervals when towing heavy.", "2011-19: 6R140 6-speed · 2020-22: 10R140 10-speed."],
     verify: ["oilCap", "drainTorque", "plug", "gap"] },
   { id: "sd67psd_g1", models: HD, name: "6.7L Power Stroke Turbo Diesel (Gen 1)", family: "Power Stroke V8 Diesel (Scorpion)", years: [2011, 2016],
     oilCap: "13.0 qt (12.3 L)", oilVisc: "SAE 10W-30 (15W-40 OK above 0 °F / -18 °C)", oilSpec: "API CJ-4 · Ford WSS-M2C171-E",

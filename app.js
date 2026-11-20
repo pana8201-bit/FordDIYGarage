@@ -140,6 +140,249 @@
     };
   }
 
+  // ---------------- VIN decoder ----------------
+  // Offline checks (format, check digit, model year, Ford WMI) + NHTSA vPIC decode
+  // (free public API, no key). The decoded data is matched to the app's
+  // model / year / engine / transmission / drive lists.
+  const VIN_W = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2];
+  const VIN_T = { A: 1, B: 2, C: 3, D: 4, E: 5, F: 6, G: 7, H: 8, J: 1, K: 2, L: 3, M: 4, N: 5, P: 7, R: 9, S: 2, T: 3, U: 4, V: 5, W: 6, X: 7, Y: 8, Z: 9 };
+  const YEAR_CODES = "ABCDEFGHJKLMNPRSTVWXY123456789";
+  let lastVin = null;
+
+  function vinLocal(raw) {
+    const vin = String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const r = { vin, ok: false, errors: [], warnings: [] };
+    if (vin.length !== 17) { r.errors.push(`A VIN has 17 characters - you entered ${vin.length}.`); return r; }
+    if (/[IOQ]/.test(vin)) { r.errors.push("VINs never use the letters I, O or Q. Check for the numbers 1 and 0."); return r; }
+    let sum = 0;
+    for (let i = 0; i < 17; i++) sum += (/\d/.test(vin[i]) ? +vin[i] : VIN_T[vin[i]]) * VIN_W[i];
+    const cd = sum % 11 === 10 ? "X" : String(sum % 11);
+    r.checkOk = cd === vin[8];
+    if (!r.checkOk) r.warnings.push(`The check digit (9th character) doesn't match - it should be "${cd}". This usually means a typo, so double-check the VIN.`);
+    const yi = YEAR_CODES.indexOf(vin[9]);
+    if (yi >= 0) r.year = (/\d/.test(vin[6]) ? 1980 : 2010) + yi;
+    r.wmi = vin.slice(0, 3);
+    r.isFord = /^[123]F/.test(vin) || ["NM0", "1ZV", "WF0", "MAJ"].includes(r.wmi);
+    if (!r.isFord) r.warnings.push(`This doesn't look like a Ford VIN (it starts with ${r.wmi}).`);
+    r.ok = true;
+    return r;
+  }
+
+  async function vinNhtsa(vin) {
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 12000);
+    try {
+      const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${vin}?format=json`, { signal: ctl.signal });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const j = await res.json();
+      return (j.Results && j.Results[0]) || null;
+    } finally { clearTimeout(to); }
+  }
+
+  function vinModel(n) {
+    const m = String(n.Model || "").trim();
+    const rules = [
+      [/mach-?e/i, "Mustang Mach-E"], [/^mustang/i, "Mustang"],
+      [/bronco sport/i, "Bronco Sport"], [/^bronco/i, "Bronco"],
+      [/^maverick/i, "Maverick"], [/^ranger/i, "Ranger"],
+      [/^explorer/i, "Explorer"], [/^expedition/i, "Expedition"],
+      [/transit connect/i, null], [/transit/i, "Transit"],
+      [/^e-?\d{3}|econoline|e-series/i, "E-Series"],
+      [/f-?150/i, "F-150"], [/f-?250/i, "F-250"], [/f-?350/i, "F-350"]
+    ];
+    for (const [re, id] of rules) if (re.test(m)) return id;
+    return null;
+  }
+
+  function vinDrive(n, model) {
+    const opts = (CATALOG.find((x) => x.id === model) || {}).drives || [];
+    const d = String(n.DriveType || "").toLowerCase();
+    const pick = (...c) => c.find((x) => opts.includes(x)) || null;
+    if (/4wd|4x4|4-wheel/.test(d)) return pick("4x4", "AWD");
+    if (/awd|all-wheel/.test(d)) return pick("AWD", "4x4");
+    if (/fwd|front-wheel/.test(d)) return pick("FWD", "4x2");
+    if (/4x2|rwd|rear-wheel|2wd/.test(d)) return pick("4x2", "RWD", "FWD");
+    return null;
+  }
+
+  function vinEngineScore(e, n) {
+    let s = 0;
+    const disp = parseFloat(n.DisplacementL);
+    const el = String(n.ElectrificationLevel || "").toLowerCase();
+    const fuel1 = String(n.FuelTypePrimary || "").toLowerCase(), fuel2 = String(n.FuelTypeSecondary || "").toLowerCase();
+    const info = `${n.EngineModel || ""} ${n.OtherEngineInfo || ""} ${n.Trim || ""} ${n.Series || ""}`.toLowerCase();
+    const trim = String(n.Trim || "").toLowerCase();
+    const nEV = /electric/.test(fuel1) || /bev/.test(el);
+    const nHyb = !nEV && (/hev|hybrid/.test(el) || /electric/.test(fuel2) || /hybrid/.test(info));
+    const nDsl = /diesel/.test(fuel1 + fuel2);
+    const nTurbo = /yes/i.test(n.Turbo || "") || /gtdi|ecoboost|turbo/.test(info);
+    const nNA = !nTurbo && /ti-?vct|cyclone|\b[234]v\b/.test(info);
+    const label = e.name + " " + e.family;
+    const eDisp = parseFloat((e.name.match(/(\d+\.\d)\s*L/) || [])[1]);
+    const eTurbo = !e.isDiesel && /ecoboost|turbo|powerboost/i.test(label);
+    const eHyb = /hybrid|powerboost/i.test(label);
+    const eHO = /h\.o\.|high output|raptor/i.test(e.name);
+
+    if (disp > 0 && !isNaN(eDisp)) s += Math.abs(disp - eDisp) < 0.06 ? 6 : -12;
+    if (nEV !== !!e.isEV) s -= 15; else if (nEV) s += 6;
+    if (nDsl !== !!e.isDiesel) s -= 10; else if (nDsl) s += 3;
+    if (nHyb) s += eHyb ? 5 : -5; else if (eHyb) s -= 3;
+    if (!e.isDiesel && !e.isEV) { if (nTurbo) s += eTurbo ? 3 : -4; else if (nNA) s += eTurbo ? -3 : 2; }
+    if (/high output|raptor/.test(info)) s += eHO ? 4 : -2; else if (eHO) s -= 3;
+    const valves = (info.match(/\b([23])v\b/) || [])[1];
+    if (valves) s += new RegExp(valves + "-valve", "i").test(e.name) ? 3 : /[23]-valve/i.test(e.name) ? -3 : 0;
+    if (/dark horse/.test(info)) s += /dark horse/i.test(e.name) ? 4 : -2; else if (/dark horse/i.test(e.name)) s -= 2;
+    const paren = (e.name.match(/\(([^)]+)\)/) || [])[1];
+    if (trim && paren && paren.toLowerCase().split(/[\s\/,]+/).some((w) => w.length > 1 && !/^\d+$|^hp$/.test(w) && new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b").test(trim))) s += 2;
+    const hp = parseFloat(n.EngineHP), ehp = parseFloat((e.name.match(/(\d{3})\s*hp/i) || [])[1]);
+    if (hp && ehp) s += Math.abs(hp - ehp) <= 20 ? 2 : -1;
+    return s;
+  }
+
+  function vinTrans(list, n) {
+    const st = String(n.TransmissionStyle || "").toLowerCase(), sp = String(n.TransmissionSpeeds || "").trim();
+    let c = list;
+    if (/manual/.test(st)) c = c.filter((t) => t.type === "Manual");
+    else if (/auto|cvt|dual/.test(st)) c = c.filter((t) => t.type !== "Manual");
+    else { const a = c.filter((t) => t.type !== "Manual"); if (a.length) c = a; }   // not reported: assume automatic
+    if (sp) { const m = c.filter((t) => new RegExp("\\b" + sp + "-Speed", "i").test(t.name)); if (m.length) c = m; }
+    if (!c.length) c = list;
+    return { trans: c[0], ambiguous: c.length > 1 && new Set(c.map((t) => t.type === "Manual")).size > 1 };
+  }
+
+  // Match decoded data to the app's lists
+  function vinMatch(local, n) {
+    const out = { notes: [], warnings: [] };
+    const year = parseInt(n && n.ModelYear, 10) || local.year;
+    out.year = year;
+    let model = n ? vinModel(n) : null;
+    // Older F-Series VINs sometimes come back with no model name. Fall back to the
+    // series digits (VIN characters 6-7) on 1990-2010 Ford truck VINs.
+    if (!model && n && !String(n.Model || "").trim() && /^[123]FT/.test(local.vin) && year <= 2010) {
+      const sd = local.vin.slice(5, 7);
+      model = /^1[2-8]$/.test(sd) ? "F-150" : /^2[0-8]$/.test(sd) ? "F-250" : /^3[0-8]$/.test(sd) ? "F-350" : null;
+      if (model) out.notes.push(`NHTSA didn't return a model name. ${model} was worked out from the VIN's series code - check it.`);
+    }
+    if (!model) {
+      out.unsupported = n && n.Model ? `${n.Model}` : null;
+      return out;
+    }
+    out.model = model;
+    if (!yearsFor(model).includes(year)) { out.yearOutOfRange = true; return out; }
+    const cands = enginesFor(year, model);
+    const ranked = cands.map((e) => ({ e, s: vinEngineScore(e, n) })).sort((a, b) => b.s - a.s);
+    const best = ranked[0], second = ranked[1];
+    const engineData = parseFloat(n.DisplacementL) > 0 || /electric/i.test(n.FuelTypePrimary || "");
+    out.engine = best.e.id;
+    out.conf = !engineData || best.s < 0 ? "low" : !second || best.s - second.s >= 3 ? "high" : "check";
+    if (out.conf === "check") out.notes.push(`${best.e.isEV ? "Battery" : "Engine"}: NHTSA's data fits more than one option (${ranked.filter((r) => best.s - r.s < 3).map((r) => r.e.name).join(" / ")}). Check the ${best.e.isEV ? "battery" : "engine"} selection.`);
+    if (out.conf === "low") out.notes.push("NHTSA didn't report enough engine detail. Pick your engine from the list (it's on the emissions label under the hood).");
+    const tl = transFor(year, best.e);
+    const tr = vinTrans(tl, n);
+    out.trans = tr.trans && tr.trans.id;
+    if (tr.ambiguous || (tl.length > 1 && !n.TransmissionStyle)) out.notes.push("Transmission: NHTSA didn't say which one. Check the transmission selection.");
+    out.drive = vinDrive(n, model);
+    if (!out.drive) out.notes.push("Drive type wasn't reported. Check the driveline buttons.");
+    return out;
+  }
+
+  function vinEngineText(n) {
+    if (/electric/i.test(n.FuelTypePrimary || "")) return "Battery electric" + (n.EngineHP ? ` · ${Math.round(n.EngineHP)} hp` : "");
+    const cfg = /v-shaped/i.test(n.EngineConfiguration || "") ? "V" : /in-line/i.test(n.EngineConfiguration || "") ? "I" : "";
+    const bits = [];
+    if (parseFloat(n.DisplacementL) > 0) bits.push(`${parseFloat(n.DisplacementL).toFixed(1)}L ${cfg}${n.EngineCylinders || ""}`.trim());
+    if (/yes/i.test(n.Turbo || "") || /gtdi/i.test(n.EngineModel || "")) bits.push("Turbo");
+    if (n.EngineModel && !/^ford$/i.test(n.EngineModel)) bits.push(n.EngineModel);
+    const fuel = [n.FuelTypePrimary, n.FuelTypeSecondary].filter(Boolean).join(" / ");
+    if (fuel) bits.push(fuel);
+    if (/hev|hybrid/i.test(n.ElectrificationLevel || "")) bits.push("Hybrid");
+    if (parseFloat(n.EngineHP)) bits.push(`${Math.round(n.EngineHP)} hp`);
+    return bits.join(" · ") || "Not reported";
+  }
+
+  function applyMatch(m) {
+    setModel(m.model);
+    sel.year = m.year; fillYears();
+    sel.engine = m.engine; fillEngines();
+    sel.trans = m.trans; fillTrans();
+    if (m.drive) sel.drive = m.drive;
+    fillDrives(); renderSpecs();
+  }
+
+  function renderVin(state) {
+    const box = $("#vinOut");
+    if (!state) { box.innerHTML = ""; return; }
+    if (state.loading) { box.innerHTML = `<div class="vinbox"><div class="vinbody hint">Decoding ${esc(state.vin)} with NHTSA…</div></div>`; return; }
+    const { local, n, m, offline } = state;
+    const warn = [...local.errors, ...local.warnings, ...(m ? m.warnings : [])];
+    if (n && n.ErrorCode && !/^0$|^1$|^1,|^0,/.test(String(n.ErrorCode)) && n.ErrorText) warn.push("NHTSA: " + String(n.ErrorText).split(";")[0]);
+    let match = "";
+    if (m && m.model && !m.yearOutOfRange && m.engine) {
+      const e = engById(m.engine), t = trById(m.trans);
+      const chip = m.conf === "high" ? `<span class="chip ok">MATCHED</span>` : m.conf === "check" ? `<span class="chip warn">CHECK ENGINE</span>` : `<span class="chip warn">PARTIAL MATCH</span>`;
+      match = `<div class="vinmatch">${chip}<div class="sub">Applied: ${m.year} ${esc(m.model)} · ${esc(e ? e.name : "-")} · ${esc(t ? t.name : "-")}${m.drive ? " · " + esc(m.drive) : ""}</div>
+        ${m.notes.map((x) => `<div class="sub sev">${esc(x)}</div>`).join("")}</div>`;
+    } else if (m && m.yearOutOfRange) {
+      const ys = yearsFor(m.model);
+      match = `<div class="vinmatch"><span class="chip bad">NOT COVERED</span><div class="sub sev">This is a ${m.year} ${esc(m.model)}. The app covers the ${esc(m.model)} for ${Math.min(...ys)}-${Math.max(...ys) >= MAX_YEAR ? "present" : Math.max(...ys)} only.</div></div>`;
+    } else if (n) {
+      match = `<div class="vinmatch"><span class="chip bad">NOT COVERED</span><div class="sub sev">${m && m.unsupported ? esc(m.unsupported) + " isn't" : "This vehicle isn't"} in the app yet. Covered: ${esc(MODELS.join(", "))}.</div></div>`;
+    } else if (offline && local.ok) {
+      match = `<div class="vinmatch"><span class="chip warn">OFFLINE</span><div class="sub sev">Couldn't reach NHTSA (no connection?). From the VIN itself: model year ${local.year || "?"}${local.isFord ? ", Ford" : ""}. Pick the rest from the lists below, or try again when you're online.</div></div>`;
+    }
+    const rows = n ? `<table class="spec">
+        ${row("Vehicle", `${n.ModelYear || local.year || ""} ${String(n.Make || "").replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase())} ${n.Model || ""}`.trim())}
+        ${n.Trim || n.Series ? row("Trim / series", [n.Trim, n.Series].filter(Boolean).join(" · ")) : ""}
+        ${row("Engine (NHTSA)", vinEngineText(n))}
+        ${row("Drive", n.DriveType || "Not reported")}
+        ${row("Transmission", n.TransmissionStyle ? `${n.TransmissionStyle}${n.TransmissionSpeeds ? " " + n.TransmissionSpeeds + "-speed" : ""}` : "Not reported")}
+        ${n.BodyClass ? row("Body", [n.BodyClass, n.BodyCabType].filter(Boolean).join(" · ")) : ""}
+        ${n.GVWR ? row("GVWR", n.GVWR) : ""}
+        ${n.PlantCity ? row("Built", [n.PlantCity, n.PlantState || n.PlantCountry].filter(Boolean).join(", ")) : ""}
+      </table>` : "";
+    const canSave = m && m.model && !m.yearOutOfRange && m.engine;
+    box.innerHTML = `<div class="vinbox">
+      <div class="vinhead">VIN ${esc(local.vin)}${local.ok ? (local.checkOk ? ' <span class="chip ok">CHECK DIGIT OK</span>' : ' <span class="chip bad">CHECK DIGIT</span>') : ""}</div>
+      <div class="vinbody">
+        ${warn.map((w) => `<div class="vinwarn">⚠ ${esc(w)}</div>`).join("")}
+        ${match}${rows}
+        <div class="row-btns">
+          ${canSave ? `<button class="btn" id="btnVinSave" type="button">★ SAVE AS MINE</button>` : `<span></span>`}
+          <button class="btn ghost" id="btnVinClear" type="button">CLEAR</button>
+        </div>
+        <p class="hint">The VIN is sent only to NHTSA's free public decoder (vpic.nhtsa.dot.gov). Results come from NHTSA's database and can be incomplete, so double-check your selections.</p>
+      </div></div>`;
+    $("#btnVinClear").onclick = () => { lastVin = null; $("#vinInput").value = ""; renderVin(null); };
+    if (canSave) $("#btnVinSave").onclick = () => {
+      S.vin = local.vin;
+      S.vinInfo = n ? { trim: n.Trim || "", series: n.Series || "", body: [n.BodyClass, n.BodyCabType].filter(Boolean).join(" · "),
+        gvwr: n.GVWR || "", plant: [n.PlantCity, n.PlantState || n.PlantCountry].filter(Boolean).join(", "), decoded: todayISO() } : null;
+      $("#btnSaveTruck").click();
+    };
+  }
+
+  async function decodeVin() {
+    const local = vinLocal($("#vinInput").value);
+    $("#vinInput").value = local.vin;
+    if (!local.ok) { renderVin({ local, n: null, m: null }); return; }
+    renderVin({ loading: true, vin: local.vin });
+    let n = null, offline = false;
+    try { n = await vinNhtsa(local.vin); } catch { offline = true; }
+    const m = n ? vinMatch(local, n) : null;
+    lastVin = { local, n, m, offline };
+    if (m && m.model && !m.yearOutOfRange && m.engine) applyMatch(m);
+    else if (offline && local.year && yearsFor(sel.model).includes(local.year)) { sel.year = local.year; fillYears(); fillEngines(); fillTrans(); fillDrives(); renderSpecs(); }
+    renderVin(lastVin);
+  }
+
+  function bindVin() {
+    const inp = $("#vinInput");
+    inp.addEventListener("input", () => {
+      const p = inp.selectionStart; inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, ""); try { inp.setSelectionRange(p, p); } catch { /* ignore */ }
+    });
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); decodeVin(); } });
+    $("#btnVin").onclick = decodeVin;
+  }
+
   // ---------------- spec sheet ----------------
   function row(label, value, { big = false, flag = false, copy = false } = {}) {
     const c = copy && value && !/^N\/A|confirm|Not equipped|In-tank/i.test(value)
@@ -631,6 +874,11 @@
         ${row("Engine", e?.name || "-")}
         ${row("Transmission", t?.name || "-")}
         ${row("Driveline", S.truck.drive.toUpperCase())}
+        ${S.vin ? row("VIN", S.vin) : ""}
+        ${S.vinInfo && S.vinInfo.trim ? row("Trim / series", [S.vinInfo.trim, S.vinInfo.series].filter(Boolean).join(" · ")) : ""}
+        ${S.vinInfo && S.vinInfo.body ? row("Body", S.vinInfo.body) : ""}
+        ${S.vinInfo && S.vinInfo.gvwr ? row("GVWR", S.vinInfo.gvwr) : ""}
+        ${S.vinInfo && S.vinInfo.plant ? row("Built", S.vinInfo.plant) : ""}
         ${row("Odometer", S.odo != null ? fmtMi(S.odo) + " mi" : "---")}
       </table>`;
     }
@@ -645,7 +893,9 @@
   function bindSettings() {
     $("#btnSaveSettings").onclick = () => {
       S.name = $("#setName").value.trim();
-      S.vin = $("#setVin").value.trim().toUpperCase();
+      const v = $("#setVin").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (v !== (S.vin || "")) S.vinInfo = null;
+      S.vin = v;
       const mi = +$("#setMi").value, mo = +$("#setMo").value;
       if (mi > 0) S.settings.mi = mi;
       if (mo > 0) S.settings.mo = mo;
@@ -654,11 +904,11 @@
     };
     $("#btnDefaults").onclick = () => {
       const e = S.truck && engById(S.truck.engine);
-      if (!e) return toast("Save a truck first");
+      if (!e) return toast("Save a vehicle first");
       $("#setMi").value = e.intervalMi; $("#setMo").value = e.intervalMo;
     };
     $("#btnWipe").onclick = () => {
-      if (!confirm("Erase truck, settings, ALL service history and ALL expenses from this device?")) return;
+      if (!confirm("Erase your vehicle, settings, ALL service history and ALL expenses from this device?")) return;
       localStorage.removeItem(LS); S = load(); init(); toast("Data erased");
     };
   }
@@ -685,7 +935,16 @@
 
   let bound = false;
   function boot() {
-    if (!bound) { fillCats(); bindSelector(); bindLog(); bindExpenses(); bindSettings(); bindTabs(); bound = true; }
+    if (!bound) {
+      fillCats(); bindSelector(); bindVin(); bindLog(); bindExpenses(); bindSettings(); bindTabs(); bound = true;
+      $("#btnDecodeSaved").onclick = () => {
+        const v = $("#setVin").value.trim();
+        if (!v) return toast("Enter a VIN first");
+        $("#vinInput").value = v;
+        document.querySelector('.tabbar button[data-tab="specs"]').click();
+        decodeVin();
+      };
+    }
     init();
     if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
       navigator.serviceWorker.register("sw.js").catch(() => {});

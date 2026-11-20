@@ -34,6 +34,16 @@
     <section id="tab-specs" class="tab active">
       <div class="card selector">
         <div class="card-h"><span class="sec">SEC 01</span> VEHICLE CONFIGURATION</div>
+        <label>DECODE A VIN (OPTIONAL)
+          <div class="vinrow">
+            <input type="text" id="vinInput" maxlength="17" autocomplete="off" autocapitalize="characters" spellcheck="false"
+                   placeholder="17-character VIN" aria-label="VIN">
+            <button class="btn" id="btnVin" type="button">DECODE</button>
+          </div>
+        </label>
+        <p class="hint" style="margin-top:4px">The VIN is on the driver-side dash (seen through the windshield), the driver door-jamb sticker, and your registration and insurance cards.</p>
+        <div id="vinOut"></div>
+        <div class="or"><span>OR CHOOSE MANUALLY</span></div>
         <label>CATEGORY
           <div class="seg" id="segCat"></div>
         </label>
@@ -165,8 +175,9 @@
         <div id="myTruck"></div>
         <div class="grid2">
           <label>NICKNAME<input type="text" id="setName" placeholder="Old Blue"></label>
-          <label>VIN (OPTIONAL)<input type="text" id="setVin" maxlength="17" placeholder="1FTFW1E..."></label>
+          <label>VIN (OPTIONAL)<input type="text" id="setVin" maxlength="17" placeholder="1FTFW1E..." autocapitalize="characters" spellcheck="false"></label>
         </div>
+        <button class="btn ghost full" id="btnDecodeSaved" type="button">DECODE THIS VIN</button>
       </div>
       <div class="card">
         <div class="card-h"><span class="sec">SEC 21</span> OIL CHANGE INTERVAL</div>

@@ -162,6 +162,20 @@ html,body{overflow-x:hidden}
 .seg{flex-wrap:nowrap}
 .seg button{white-space:nowrap}
 
+/* ---------- VIN decoder ---------- */
+.vinrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:stretch}
+.vinrow input{font-family:var(--mono);letter-spacing:1px;text-transform:uppercase}
+.vinrow .btn{width:auto;padding:0 16px;margin-top:4px}
+.vinbox{border:1px solid var(--line);border-left:4px solid var(--blue3);border-radius:6px;margin-top:10px;overflow:hidden}
+.vinhead{background:#eef4fb;font-family:var(--mono);font-size:12px;font-weight:700;padding:8px 10px;color:var(--blue);word-break:break-all}
+.vinbody{padding:4px 10px 10px}
+.vinbody .spec{width:100%}
+.vinwarn{background:#fff4e0;border:1px solid #e8c35a;color:#5c3b00;border-radius:4px;padding:6px 8px;font-size:12px;margin-top:8px}
+.vinmatch{margin-top:6px}
+.or{display:flex;align-items:center;gap:8px;margin:14px 0 2px;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:1.2px}
+.or::before,.or::after{content:"";flex:1;border-top:1px dashed var(--line)}
+@media (prefers-color-scheme: dark){ .vinhead{background:#16213a;color:#8cc4ff} .vinwarn{background:#2a2110;color:#f3d79b;border-color:#7a5a12} }
+
 .prelim{background:#fff4e0;border:1px solid #e8c35a;border-left:6px solid var(--warn);color:#5c3b00;
   border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;line-height:1.45}
 .seg button{padding:10px 4px;font-size:13px}
