@@ -9,7 +9,7 @@
    Ford Workshop Manual, or motorcraftservice.com before final torque.
    ===================================================================== */
 
-const DATA_VERSION = "2026.11g";
+const DATA_VERSION = "2026.11h";
 
 /* ---------------------------------------------------------------------
    GENERATIONS - chassis-level specs shared by every engine in the range
@@ -479,6 +479,7 @@ const SERVICE_TYPES = [
   "Oil & Filter Change", "Tire Rotation", "Engine Air Filter", "Cabin Air Filter",
   "Fuel Filter", "Spark Plugs", "Transmission Fluid", "Rear Differential Fluid",
   "Front Differential Fluid", "Transfer Case Fluid", "PTU Fluid", "Rear Drive Unit Fluid", "Coolant Flush", "Brake Fluid",
+  "EV Battery Coolant", "Electric Drive Fluid",
   "Brake Pads / Rotors", "Drive Belt", "Battery Test", "Battery Replacement",
   "Wiper Blades", "Other"
 ];

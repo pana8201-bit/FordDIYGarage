@@ -112,6 +112,7 @@ GENERATIONS.push(
     rearAxle: "Ford 8.8\" IRS (Torsen LSD on Performance Pack / Dark Horse) - SAE 75W-85 Synthetic (WSL-M2C192-A)",
     rearAxleCap: "≈ 3.0-3.5 pt (1.4-1.7 L)",
     notes: ["Staggered wheel and tire setups can't be rotated front-to-back. Rotate side-to-side only if the tires aren't directional.",
+            "Ford: heavy track or high-rpm use can bring on a wrench light for timing-chain replacement.",
             "Mustang GTD (2025+) is not covered - specialist / dealer service only."],
     verify: ["lugTorque", "fuelTank", "rearAxle", "rearAxleCap"] }),
 
@@ -179,7 +180,8 @@ GENERATIONS.push(
     rearAxle: "Rear axle - synthetic gear lube per axle tag / Owner's Manual", rearAxleCap: CONFIRM,
     ptu: "AWD transfer unit (2020+) - per Owner's Manual", ptuCap: CONFIRM_WSM,
     components: { RWD: ["rear"], AWD: ["rear", "ptu"] },
-    notes: ["DRW: retorque lug nuts after the first 50-100 mi following a wheel change.", "E-Transit: battery electric, RWD only. HV system - dealer service."],
+    notes: ["DRW: retorque lug nuts after the first 50-100 mi following a wheel change.", "Ford: torque the rear axle U-bolts every 30,000 mi.",
+            "E-Transit: battery electric, RWD only. HV system - dealer service."],
     verify: ["lugTorque", "lugPattern", "fuelTank"] }),
 
   gen({ id: "eseries", models: ["E-Series"], code: "Cutaway / Stripped Chassis", platform: "E-Series (2021+ powertrain)", years: [2021, 2099],
@@ -187,7 +189,8 @@ GENERATIONS.push(
     fuelTank: "≈ 40 gal (151 L) · optional ≈ 55 gal (cutaway)",
     rearAxle: "Heavy-duty rear axle (DRW) - SAE 75W-140 Synthetic per axle tag", rearAxleCap: CONFIRM,
     cabinFilter: "Not equipped (most builds)",
-    notes: ["Cutaway / stripped chassis: the upfitter's body can change fluid access and some capacities.",
+    notes: ["Ford: torque the rear axle U-bolts every 30,000 mi, and repack non-sealed front wheel bearings every 60,000 mi.",
+            "Cutaway / stripped chassis: the upfitter's body can change fluid access and some capacities.",
             "DRW: retorque lug nuts after the first 50-100 mi following a wheel change."],
     verify: ["lugTorque", "fuelTank", "rearAxle", "cabinFilter"] })
 );

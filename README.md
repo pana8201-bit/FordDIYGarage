@@ -31,11 +31,22 @@ Camera VIN scan (📷 **SCAN VIN WITH CAMERA**):
 - The camera needs https (GitHub Pages is fine). On iPhone, use Safari or the Home Screen app and allow camera access.
 
 Maintenance intervals - sources and customizing (`schedule.js`):
-- Intervals come from these Ford documents (fordservicecontent.com): the **2021, 2018 and 2012 F-150** owner's manuals, the **2004/2007 and 2009/2010 Scheduled Maintenance Guides**, the **2020 Super Duty** owner's manual and the **2022 Maverick** owner's manual.
+- Intervals come from these Ford documents (fordservicecontent.com):
+  - **F-Series:** the 2021, 2018 and 2012 F-150 owner's manuals, the 2004/2007 and 2009/2010 Scheduled Maintenance Guides, and the 2020 Super Duty owner's manual.
+  - **Other models:** the 2022 Maverick, 2023 Bronco, 2023/2024 Bronco Sport, 2023/2024 Explorer, 2024 Mustang, 2023 Mustang Mach-E, 2024 Transit / E-Transit and 2024 E-Series owner's manuals.
+  - **Older generation only:** the Ranger and Expedition use their previous-generation manuals (2023 Ranger, 2023/2024 Expedition), because the current-generation 2024+ manuals no longer print the schedule. Ford now points to ford.com/support/maintenance-schedule. The 2024 Ranger manual is used for its oil rule.
+- Model-specific Ford rules are included:
+  - Bronco off-road: front axle and transfer case every 30k / 2 yr.
+  - Bronco Sport: 12,500-mile maximum oil interval in 2023, 10,000 in 2024, and transmission fluid every 30k under severe use.
+  - Explorer: the rear axle and PTU are changed only when the message center asks.
+  - Mustang: track-use oil and rear-axle rules, and the manual-transmission severe interval.
+  - Transit 3.5L PFDi: up to 15,000 miles between oil changes.
+  - E-Series: fixed 10k / 12 month / 700-hour oil changes, rotation every 7,500 mi, plugs and rear axle at 97,500.
+  - Mach-E and E-Transit: rotation every 12 months / 10k, battery coolant and electric-drive fluid.
 - Every item shows how sure it is:
   - **FORD MANUAL:** read from the Ford document for that exact model and year.
   - **FORD · NEARBY YEAR:** from the same model's manual for an adjacent year.
-  - **FORD COMMON SCHEDULE:** Ford's standard modern schedule; this vehicle's own manual hasn't been checked yet (most non-F-Series models).
+  - **FORD · RELATED MANUAL:** from a related Ford manual (previous generation or another model) because this vehicle's own manual has no schedule table.
   - **NOT A FORD ITEM:** Ford doesn't schedule it (e.g. a yearly battery test), or no Ford value was found (e.g. pre-1997 trucks).
 - Oil on 2011+ vehicles follows Ford's Intelligent Oil-Life Monitor rule: change when the monitor says so, never more than 1 year / 10,000 mi. The tracker reminds you at that maximum unless you set your own interval.
 - **MY RIDE → Maintenance intervals:** switch between Ford's **Normal** and **Severe duty** schedules. Type your own miles and/or months for any item, or tap **FORD** to go back to Ford's value. Custom intervals drive the reminders, the Service tab and the spec sheet. Saving a different vehicle resets them.

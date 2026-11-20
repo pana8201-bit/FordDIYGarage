@@ -13,11 +13,18 @@
      SD20 2020 Super Duty Owner's Manual - Scheduled Maintenance
      M22  2022 Maverick Owner's Manual - Scheduled Maintenance
 
+   Also: 2023 Bronco, 2023 + 2024 Bronco Sport, 2023 Ranger (previous
+   gen) + 2024 Ranger (oil rule only), 2023/2024 Explorer, 2023/2024
+   Expedition (previous gen), 2024 Mustang, 2023 Mustang Mach-E, 2024
+   Transit / E-Transit, 2024 E-Series. Several 2024+ manuals no longer
+   print the schedule (Ford points to ford.com/support/maintenance-
+   schedule); the latest manual that does print it is used.
+
    How sure each interval is (shown in the app):
      confirmed - read from the Ford document for this model and year
      inferred  - from a Ford document for the same model, nearby year
-     assumed   - Ford's common schedule from another model; this
-                 vehicle's own manual wasn't checked
+     assumed   - from a related Ford manual (previous generation or
+                 another model); this vehicle's own manual has no table
      general   - Ford doesn't schedule this item (or no Ford value was
                  found); typical DIY practice
    Intervals are "whichever comes first" (miles or months).
@@ -31,11 +38,39 @@ const SCHED_SOURCES = {
   G04: "Ford 2004/2007 Scheduled Maintenance Guides",
   SD20: "Ford 2020 Super Duty Owner's Manual",
   M22: "Ford 2022 Maverick Owner's Manual",
-  COMMON: "Ford's common schedule (2021 F-150 / 2022 Maverick manuals)",
+  B23: "Ford 2023 Bronco Owner's Manual",
+  BS23: "Ford 2023 Bronco Sport Owner's Manual",
+  BS24: "Ford 2024 Bronco Sport Owner's Manual",
+  R23: "Ford 2023 Ranger Owner's Manual (previous generation)",
+  R24: "Ford 2024 Ranger Owner's Manual",
+  X24: "Ford 2023/2024 Explorer Owner's Manuals",
+  EX23: "Ford 2023 Expedition Owner's Manual (previous generation)",
+  EX24: "Ford 2024 Expedition Owner's Manual (previous generation)",
+  MU24: "Ford 2024 Mustang Owner's Manual",
+  ME23: "Ford 2023 Mustang Mach-E Owner's Manual",
+  TR24: "Ford 2024 Transit Owner's Manual",
+  ES24: "Ford 2024 E-Series Owner's Manual",
+  COMMON: "Ford's common modern schedule (F-150 / Maverick manuals)",
   GEN: "Not in Ford's schedule - typical practice"
 };
 const CONF_RANK = { confirmed: 3, inferred: 2, assumed: 1, general: 0 };
-const CONF_LABEL = { confirmed: "FORD MANUAL", inferred: "FORD · NEARBY YEAR", assumed: "FORD COMMON SCHEDULE", general: "NOT A FORD ITEM" };
+const CONF_LABEL = { confirmed: "FORD MANUAL", inferred: "FORD · NEARBY YEAR", assumed: "FORD · RELATED MANUAL", general: "NOT A FORD ITEM" };
+
+/* Per-model Ford manual used for the schedule. `rel` = only a previous-
+   generation / related manual was available; `from` = earlier years use
+   Ford's common schedule instead. */
+const MODEL_SRC = {
+  "Bronco":         { src: "B23",  years: [2023] },
+  "Bronco Sport":   { src: "BS23", years: [2023] },
+  "Explorer":       { src: "X24",  years: [2023, 2024] },
+  "Mustang":        { src: "MU24", years: [2024] },
+  "Mustang Mach-E": { src: "ME23", years: [2023] },
+  "Transit":        { src: "TR24", years: [2024], from: 2020 },
+  "E-Series":       { src: "ES24", years: [2024] },
+  "Expedition":     { src: "EX23", rel: true },
+  "Ranger":         { src: "R23",  rel: true }
+};
+const mdl = (c) => c.model || c.gen.models[0];
 const minConf = (a, b) => (CONF_RANK[a] <= CONF_RANK[b] ? a : b);
 
 const SEVERE_DEF = "Ford's \"special operating conditions\": towing, extended idling or low-speed driving, dusty / sandy / off-road roads, " +
@@ -61,8 +96,93 @@ function schedEra(c) {
     return { k: "f04", src: "G04", conf: "assumed" };
   }
   if (m === "Maverick") return { k: "m21", src: "M22", conf: y === 2022 ? "confirmed" : "inferred" };
-  if (m === "Transit" && y <= 2020) return { k: "i15", src: "COMMON", conf: "assumed" };
+  const ms = MODEL_SRC[m];
+  if (ms) {
+    if (ms.from && y < ms.from) return { k: "i15", src: "COMMON", conf: "assumed" };
+    return { k: "m21", src: ms.src, conf: ms.rel ? "assumed" : ms.years.includes(y) ? "confirmed" : "inferred" };
+  }
   return { k: "m21", src: "COMMON", conf: "assumed" };
+}
+
+/* Model-specific differences from Ford's common schedule, from each
+   model's own manual. Returns { r, cap?, src?, conf? } (cap lowers the
+   confidence; conf/src replace them). */
+function modelOverride(id, c, r, E) {
+  const m = mdl(c), e = c.eng, y = c.year, t = c.trans;
+  const noLeakNote = "Ford: change not required unless a leak is suspected or the unit has been under water.";
+  if (e.isEV) {
+    if (id === "rot") r = { n: iv(10000, 12), s: null, note: "Ford: rotate tires and do a multi-point inspection every 12 months / 10,000 mi." };
+    if (m === "F-150" && ["rot", "evcool", "edrive", "cabin", "brake"].includes(id)) {
+      r.note = (r.note ? r.note + " " : "") + "From the Mach-E / E-Transit manuals - the F-150 Lightning manual wasn't checked.";
+      return { r, src: "ME23", conf: "assumed" };
+    }
+    return { r };
+  }
+  switch (m) {
+    case "Bronco":
+      if (id === "oil") r.note = r.note + " Heavy off-road or track driving can use about 1 qt of oil per 500 mi - check the level often.";
+      if (["front", "rear", "tcase"].includes(id)) r.note = noLeakNote;
+      if (id === "front" || id === "tcase") Object.assign(r, { s: iv(30000, 24), sNote: "Ford's off-road schedule: hot sand, desert or sustained high-speed 4WD use." });
+      if (id === "trans" && t.type === "Manual") return { r: { n: iv(150000), s: null }, cap: "confirmed" };
+      break;
+    case "Bronco Sport":
+      if (id === "oil") {
+        if (y >= 2024) return { r: { n: iv(10000, 12), s: iv(5000, 6), note: IOLM, sNote: r.sNote }, src: "BS24", conf: y === 2024 ? "confirmed" : "inferred" };
+        r = { n: iv(12500, 12), s: iv(5000, 6), sNote: r.sNote,
+          note: "Ford (2023 manual): change when the oil-life monitor says so, never more than 1 year or 12,500 mi. The 2024 manual lowers the maximum to 10,000 mi." };
+      }
+      if (id === "rot") r.n = iv(y >= 2024 ? 10000 : 12500);
+      if (id === "trans") Object.assign(r, { s: iv(30000), sNote: "Towing, extended idling or dusty conditions." });
+      if (id === "ptu" || id === "rdu") return { r: { n: iv(150000), s: null,
+        note: "Ford lists no fixed interval: change when the message center shows 'Change 4WD Power Transfer Unit Lube', or if the unit has been under water. 150,000 mi is shown for tracking only." }, cap: "general" };
+      if (id === "belt") r.note = "Ford: replace at 150,000 mi if not replaced in the last 100,000 mi.";
+      break;
+    case "Ranger":
+      if (id === "oil") return { r, src: "R24", conf: y === 2024 ? "confirmed" : "inferred" };
+      if (["front", "rear", "tcase"].includes(id)) r.note = noLeakNote;
+      break;
+    case "Explorer": {
+      const hyb = /hybrid/i.test(e.name);
+      if (id === "oil" && hyb) r.note = IOLM + " Hybrid: the monitor may allow more than 10,000 mi, but never more than 1 year.";
+      if (id === "coolant" && hyb) r.note = (r.note || "") + " Hybrid: the motor-electronics coolant is changed on the same schedule.";
+      if (id === "rear" || id === "ptu") return { r: { n: iv(150000), s: null,
+        note: "Ford: no scheduled change - only when the message center asks, after a leak, or if the unit has been under water. 150,000 mi is shown for tracking only." }, cap: "general" };
+      if (id === "belt") r.note = "Ford: inspect at 100,000 mi; replace at 150,000 mi if not replaced in the last 100,000 mi.";
+      break;
+    }
+    case "Expedition":
+      if (id === "oil") return { r, src: "EX24", conf: "assumed" };
+      if (id === "tcase") Object.assign(r, { s: iv(60000), sNote: "Towing, extended idling, dusty or off-road use." });
+      break;
+    case "Mustang":
+      if (id === "oil") r.sNote = "Dusty: 5,000 mi / 6 months. Track use: change oil and filter every track weekend (about 4 hours of track time).";
+      if (id === "air") r.sNote = "Extended idling or dusty conditions: inspect every 15,000 mi.";
+      if (id === "trans" && t.type === "Manual") return { r: { n: iv(150000), s: iv(50000), sNote: "Ford: 60,000 mi when towing; 50,000 mi in dusty conditions." }, cap: "confirmed" };
+      if (id === "trans" && t.type === "Dual-Clutch") return { r: { n: iv(150000), s: null, note: "Dual-clutch transmission: dealer service. Interval not confirmed - the 2024 manual predates it." }, cap: "general" };
+      if (id === "trans") r.note = "Ford: replace fluid and filter at 150,000 mi.";
+      if (id === "rear") { r.note = undefined; r.sNote = "Track use: change every 500 track miles, or when the axle over-temperature message appears."; }
+      break;
+    case "Transit":
+      if (y < 2020) break;
+      if (id === "oil" && e.id === "tr35") r = { n: iv(15000, 12), s: iv(5000, 6), sNote: r.sNote,
+        note: "Ford: 3.5L PFDi - change when the oil-life monitor says so, never more than 1 year or 15,000 mi. If the monitor isn't working: 6 months / 5,000 mi." };
+      if (id === "rot") r.n = iv(e.id === "tr35" ? 15000 : 10000);
+      if (["rear", "front", "tcase", "ptu"].includes(id)) {
+        r.note = "Ford's table lists 150,000 mi, but its exceptions say the change isn't required unless a leak is suspected or the unit has been under water.";
+        if (id === "ptu") return { r, cap: "confirmed" };
+      }
+      break;
+    case "E-Series":
+      if (id === "oil") r = { n: iv(10000, 12), s: null, note: "Ford: fixed interval - every 10,000 mi, 12 months or 700 engine hours." };
+      if (id === "rot") r = { n: iv(7500), s: null, note: "Ford: dual rear wheels - rotate the front tires only; rotate the rears only if wear looks uneven." };
+      if (id === "plugs") r = { n: iv(97500), s: iv(60000), sNote: "Towing or extended idling." };
+      if (id === "rear") r = { n: iv(97500), s: iv(22500), sNote: "Towing or extended idling." };
+      if (id === "trans") r = { n: iv(150000), s: null, note: "Ford: replace fluid and filter at 150,000 mi; check the level every 15,000 mi." };
+      if (id === "belt") r = { n: iv(150000), s: null, note: "Ford: inspect at 105,000 mi, then every 15,000 mi; replace at 150,000 mi if not replaced in the last 100,000 mi." };
+      if (id === "coolant" || id === "brake") return { r, cap: "assumed", src: "COMMON" };
+      break;
+  }
+  return { r };
 }
 
 const iv = (mi, mo) => ({ mi: mi || null, mo: mo || null });
@@ -187,7 +307,24 @@ function fordItem(id, c) {
       r = { n: iv(null, 12), s: null, note: "Have the 12V battery load-tested yearly once it's 3+ years old." };
       cap = "general"; src = "GEN";
       break;
+    case "evcool":
+      if (!e.isEV) return null;
+      r = { n: iv(100000, 60), first: iv(200000, 120), s: null,
+        note: "Ford: battery / electronics coolant (yellow) - first change at 10 years / 200,000 mi, then every 5 years / 100,000 mi. Dealer service." };
+      break;
+    case "edrive":
+      if (!e.isEV) return null;
+      r = { n: iv(150000, 120), s: null, note: "Ford: e-motor transmission / electric drive fluid at 10 years / 150,000 mi. Dealer service." };
+      break;
     default: return null;
+  }
+  if (id !== "battery") {
+    const o = modelOverride(id, c, r, E);
+    r = o.r;
+    if (o.src) src = o.src;
+    if (o.conf) { r.conf = o.conf; r.src = src; return r; }
+    if (o.cap === "confirmed") cap = "confirmed";        // model manual lists this item directly
+    else if (o.cap) cap = minConf(cap, o.cap);
   }
   r.conf = minConf(E.conf, cap);
   if (r.conf === "general" && src !== "GEN") r.srcNote = SCHED_SOURCES.GEN;
@@ -214,6 +351,8 @@ const SCHEDULE = [
   { id: "ptu", type: "PTU Fluid", when: (c) => driveComps(c).includes("ptu"), part: (c) => c.gen.ptu },
   { id: "rdu", type: "Rear Drive Unit Fluid", when: (c) => driveComps(c).includes("rdu"), part: (c) => c.gen.rdu },
   { id: "belt", type: "Drive Belt", when: (c) => !c.eng.isEV },
+  { id: "evcool", type: "EV Battery Coolant", when: (c) => !!c.eng.isEV, part: () => "Motorcraft Yellow coolant - dealer service" },
+  { id: "edrive", type: "Electric Drive Fluid", when: (c) => !!c.eng.isEV, part: (c) => c.trans.fluid },
   { id: "wiper", type: "Wiper Blades", when: () => true, part: (c) => { const w = wipersFor(c.gen, c.year); return w ? wiperShort(w) : ""; } },
   { id: "battery", type: "Battery Test", when: () => true }
 ];
