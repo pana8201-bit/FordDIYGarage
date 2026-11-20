@@ -1,34 +1,40 @@
-/* F-150 Field Service Reference - application logic */
+/* DIY Garage - F-Series (F-150 / F-250 / F-350) reference - application logic */
 (() => {
   "use strict";
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const LS = "f150fsr.v1";
+  const LS = "f150fsr.v1";            // kept for backward compatibility with saved data
   const MAX_YEAR = new Date().getFullYear() + 1;
 
   // ---------------- state ----------------
   const defaults = {
-    truck: null,              // {year, engine, trans, drive}
+    truck: null,              // {model, year, engine, trans, drive}
     name: "", vin: "",
     odo: null,
     settings: { mi: null, mo: null, warn: 500 },
     log: [],
+    expenses: [],
     lastNotified: null
   };
   let S = load();
-  let sel = { year: null, engine: null, trans: null, drive: "4x2" };
+  let sel = { model: "F-150", year: null, engine: null, trans: null, drive: "4x2" };
 
   function load() {
     const base = JSON.parse(JSON.stringify(defaults));
-    try { const d = JSON.parse(localStorage.getItem(LS)) || {}; return Object.assign(base, d, { settings: Object.assign(base.settings, d.settings || {}) }); }
-    catch { return base; }
+    try {
+      const d = JSON.parse(localStorage.getItem(LS)) || {};
+      const s = Object.assign(base, d, { settings: Object.assign(base.settings, d.settings || {}) });
+      if (s.truck && !s.truck.model) s.truck.model = "F-150";
+      if (!Array.isArray(s.expenses)) s.expenses = [];
+      return s;
+    } catch { return base; }
   }
   function save() { localStorage.setItem(LS, JSON.stringify(S)); }
 
   // ---------------- helpers ----------------
   const inRange = (y, r) => y >= r[0] && y <= r[1];
-  const genFor = (y) => GENERATIONS.find((g) => inRange(y, g.years));
+  const genFor = (y, m = sel.model) => GENERATIONS.find((g) => g.models.includes(m) && inRange(y, g.years));
   const engById = (id) => ENGINES.find((e) => e.id === id);
   const trById = (id) => TRANSMISSIONS.find((t) => t.id === id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -42,7 +48,13 @@
     clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2200);
   }
 
-  function enginesFor(y) { return ENGINES.filter((e) => inRange(y, e.years)); }
+  function enginesFor(y, m = sel.model) { return ENGINES.filter((e) => e.models.includes(m) && inRange(y, e.years)); }
+  const money = (n) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  // short value for summary tiles
+  const short = (v) => (/confirm/i.test(v || "") ? "See VIN" : String(v || "-").replace("Motorcraft ", "").split(" (")[0]);
+  const truckLabel = (t) => `${t.year} ${t.model || "F-150"}`;
+  const CONFIRM_TXT = "Confirm in Owner's Manual";
   function transFor(y, eng) {
     return eng.trans
       .map(trById)
@@ -50,10 +62,51 @@
   }
 
   // ---------------- selector ----------------
+  function yearsFor(m) {
+    const out = [];
+    for (let y = MAX_YEAR; y >= 1990; y--) if (genFor(y, m) && enginesFor(y, m).length) out.push(y);
+    return out;
+  }
   function fillYears() {
     const s = $("#selYear"); s.innerHTML = "";
-    for (let y = MAX_YEAR; y >= 1990; y--) s.add(new Option(y, y));
+    const ys = yearsFor(sel.model);
+    ys.forEach((y) => s.add(new Option(y, y)));
+    if (!ys.includes(sel.year)) sel.year = ys.reduce((a, b) => (Math.abs(b - sel.year) < Math.abs(a - sel.year) ? b : a), ys[0]);
+    s.value = sel.year;
   }
+  const catOf = (m) => (CATALOG.find((x) => x.id === m) || CATALOG[0]).cat;
+  function fillCats() {
+    $("#segCat").innerHTML = CATEGORIES.map((c) => `<button data-v="${c}">${c}</button>`).join("");
+    $$("#segCat button").forEach((b) => (b.onclick = () => {
+      const first = CATALOG.find((x) => x.cat === b.dataset.v);
+      setModel(first.id); refreshAll();
+    }));
+  }
+  function setModel(m) {
+    if (!CATALOG.some((x) => x.id === m)) m = "F-150";
+    sel.model = m;
+    const cat = catOf(m);
+    $$("#segCat button").forEach((b) => b.classList.toggle("on", b.dataset.v === cat));
+    const s = $("#selModel"); s.innerHTML = "";
+    CATALOG.filter((x) => x.cat === cat).forEach((x) => s.add(new Option(x.id, x.id)));
+    s.value = m;
+  }
+  // drive types valid for this model + engine + year
+  function drivesFor() {
+    const base = (CATALOG.find((x) => x.id === sel.model) || {}).drives || ["4x2", "4x4"];
+    const e = engById(sel.engine);
+    let d = base;
+    if (e && e.drives) d = d.filter((x) => e.drives.includes(x));
+    if (e && e.drivesFor) d = d.filter((x) => e.drivesFor(sel.year).includes(x));
+    return d.length ? d : base;
+  }
+  function fillDrives() {
+    const ds = drivesFor();
+    $("#segDrive").innerHTML = ds.map((d) => `<button data-v="${d}">${d}</button>`).join("");
+    $$("#segDrive button").forEach((b) => (b.onclick = () => { setDrive(b.dataset.v); renderSpecs(); }));
+    setDrive(ds.includes(sel.drive) ? sel.drive : ds[ds.length - 1]);
+  }
+  function refreshAll() { fillYears(); fillEngines(); fillTrans(); fillDrives(); renderSpecs(); }
   function fillEngines() {
     const s = $("#selEngine"); s.innerHTML = "";
     enginesFor(sel.year).forEach((e) => s.add(new Option(e.name, e.id)));
@@ -73,16 +126,17 @@
   }
 
   function bindSelector() {
-    $("#selYear").onchange = (e) => { sel.year = +e.target.value; fillEngines(); fillTrans(); renderSpecs(); };
-    $("#selEngine").onchange = (e) => { sel.engine = e.target.value; fillTrans(); renderSpecs(); };
+    $("#selYear").onchange = (e) => { sel.year = +e.target.value; fillEngines(); fillTrans(); fillDrives(); renderSpecs(); };
+    $("#selEngine").onchange = (e) => { sel.engine = e.target.value; fillTrans(); fillDrives(); renderSpecs(); };
     $("#selTrans").onchange = (e) => { sel.trans = e.target.value; renderSpecs(); };
-    $$("#segDrive button").forEach((b) => (b.onclick = () => { setDrive(b.dataset.v); renderSpecs(); }));
+    $("#selModel").onchange = (e) => { setModel(e.target.value); refreshAll(); };
     $("#btnSaveTruck").onclick = () => {
+      const prev = S.truck && engById(S.truck.engine);
       S.truck = { ...sel };
       const e = engById(sel.engine);
-      if (S.settings.mi == null) S.settings.mi = e.intervalMi;
-      if (S.settings.mo == null) S.settings.mo = e.intervalMo;
-      save(); renderAll(); toast("Saved as My Truck");
+      // reset the oil interval when the engine changes (e.g. gas -> diesel)
+      if (S.settings.mi == null || !prev || prev.id !== e.id) { S.settings.mi = e.intervalMi; S.settings.mo = e.intervalMo; }
+      save(); renderAll(); toast(`Saved ${truckLabel(sel)} as your vehicle`);
     };
   }
 
@@ -99,23 +153,24 @@
     const ev = (k) => (e.verify || []).includes(k);
     const tv = (k) => (t.verify || []).includes(k);
     const gv = (k) => (g.verify || []).includes(k);
-    const is4 = sel.drive === "4x4";
+    const ctx = { year: sel.year, gen: g, eng: e, trans: t, drive: sel.drive };
+    const comps = driveComps(ctx);
 
     $("#genLine").textContent =
-      `${g.code} · ${g.platform} · MY ${g.years[0]}-${g.years[1] > 2090 ? "present" : g.years[1]} · ${e.family}`;
+      `${sel.model} · ${g.code} · ${g.platform} · MY ${g.years[0]}-${g.years[1] > 2090 ? "present" : g.years[1]} · ${e.family}`;
 
     const hero = e.isEV ? `
       <div class="hero">
         <div class="kpi"><div class="k">LUG NUT TORQUE</div><div class="v">${esc(g.lugTorque.split(" (")[0])}</div></div>
         <div class="kpi"><div class="k">WASHER FLUID</div><div class="v">${esc(g.washer)}</div></div>
-        <div class="kpi"><div class="k">DRIVE</div><div class="v">eAWD</div></div>
+        <div class="kpi"><div class="k">DRIVE</div><div class="v">${esc(sel.drive)}</div></div>
         <div class="kpi"><div class="k">INTERVAL</div><div class="v">${fmtMi(e.intervalMi)} mi</div></div>
       </div>` : `
       <div class="hero">
-        <div class="kpi"><div class="k">OIL CAPACITY</div><div class="v">${esc(e.oilCap.split(" (")[0])}</div></div>
-        <div class="kpi"><div class="k">OIL GRADE</div><div class="v">${esc(e.oilVisc.split(" (")[0].replace("SAE ", ""))}</div></div>
-        <div class="kpi"><div class="k">OIL FILTER</div><div class="v">${esc(e.filter.replace("Motorcraft ", "").split(" (")[0])}</div></div>
-        <div class="kpi"><div class="k">LUG TORQUE</div><div class="v">${esc(g.lugTorque.split(" (")[0])}</div></div>
+        <div class="kpi"><div class="k">OIL CAPACITY</div><div class="v">${esc(short(e.oilCap))}</div></div>
+        <div class="kpi"><div class="k">OIL GRADE</div><div class="v">${esc(short(e.oilVisc).replace("SAE ", ""))}</div></div>
+        <div class="kpi"><div class="k">OIL FILTER</div><div class="v">${esc(short(e.filter))}</div></div>
+        <div class="kpi"><div class="k">LUG TORQUE</div><div class="v">${esc(short(g.lugTorque))}</div></div>
       </div>`;
 
     const engineCard = e.isEV ? "" : `
@@ -152,8 +207,9 @@
         <table class="spec">
           ${row("Fuel type", e.fuel, { big: true, flag: ev("fuel") })}
           ${row(e.isEV ? "Energy storage" : "Fuel tank capacity", pick("fuelTank"), { flag: pv("fuelTank") })}
-          ${e.isEV || /diesel/i.test(e.family) ? "" : row("Spark plug", e.plug, { big: true, flag: ev("plug"), copy: true })}
-          ${e.isEV || /diesel/i.test(e.family) ? "" : row("Spark plug gap", e.gap, { flag: ev("gap") })}
+          ${e.isEV || e.isDiesel ? "" : row("Spark plug", e.plug, { big: true, flag: ev("plug"), copy: true })}
+          ${e.isEV || e.isDiesel ? "" : row("Spark plug gap", e.gap, { flag: ev("gap") })}
+          ${e.isDiesel ? row("Ignition", "Compression ignition - glow plugs (not a routine DIY item)") : ""}
           ${e.plugMi ? row("Plug replacement", `Every ${fmtMi(e.plugMi)} mi`, { flag: ev("plugMi") }) : ""}
         </table>
       </div>`;
@@ -169,18 +225,31 @@
         </table>
       </div>`;
 
-    const diffCard = e.isEV ? "" : `
+    const has = (c) => comps.includes(c);
+    const drvRows = [
+      has("rear") ? row("Rear differential fluid", g.rearAxle, { big: true, flag: gv("rearAxle") }) : "",
+      has("rear") ? row("Rear differential capacity", g.rearAxleCap, { flag: gv("rearAxleCap") }) : "",
+      has("front") ? row("Front differential fluid", g.frontDiff, { big: true, flag: gv("frontDiff") }) : "",
+      has("front") ? row("Front differential capacity", g.frontDiffCap, { flag: gv("frontDiffCap") }) : "",
+      has("tcase") ? row("Transfer case", g.transferCase, { flag: gv("transferCase") }) : "",
+      has("ptu") ? row("Power transfer unit (PTU)", g.ptu || CONFIRM_TXT, { big: true }) : "",
+      has("ptu") ? row("PTU capacity", g.ptuCap || CONFIRM_TXT) : "",
+      has("rdu") ? row("Rear drive unit (RDU)", g.rdu || CONFIRM_TXT, { big: true }) : "",
+      has("rdu") ? row("RDU capacity", g.rduCap || CONFIRM_TXT) : ""
+    ].join("");
+    const diffCard = e.isEV ? "" : !comps.length ? `
       <div class="card">
-        <div class="card-h"><span class="sec">SEC 06</span> DIFFERENTIALS · TRANSFER CASE</div>
+        <div class="card-h"><span class="sec">SEC 06</span> DRIVELINE</div>
+        <p class="hint" style="margin-bottom:12px">FWD: the differential is inside the transaxle and shares its fluid. See Transmission above.</p>
+      </div>` : `
+      <div class="card">
+        <div class="card-h"><span class="sec">SEC 06</span> DRIVELINE · DIFFERENTIALS</div>
         <table class="spec">
-          ${row("Rear differential fluid", g.rearAxle, { big: true })}
-          ${row("Rear differential capacity", g.rearAxleCap, { flag: gv("rearAxleCap") })}
-          ${is4 ? row("Front differential fluid (4x4)", g.frontDiff, { big: true }) : ""}
-          ${is4 ? row("Front differential capacity", g.frontDiffCap, { flag: gv("frontDiffCap") }) : ""}
-          ${is4 ? row("Transfer case (4x4)", g.transferCase, { flag: gv("transferCase") }) : ""}
-          ${row("Fill level", "To the bottom edge of the fill-plug hole, truck level")}
+          ${drvRows}
+          ${row("Fill level", "To the bottom edge of the fill-plug hole, vehicle level (unless the manual says otherwise)")}
         </table>
-        ${is4 ? "" : '<p class="hint" style="margin-bottom:12px">Select 4x4 to see front differential and transfer case specs.</p>'}
+        ${sel.drive === "4x2" && (CATALOG.find((x) => x.id === sel.model) || {}).drives.includes("4x4")
+          ? '<p class="hint" style="margin-bottom:12px">Select 4x4 to see front differential and transfer case specs.</p>' : ""}
       </div>`;
 
     const chassisCard = `
@@ -196,7 +265,10 @@
         </table>
       </div>`;
 
-    const schedCard = renderSchedule({ year: sel.year, gen: g, eng: e, trans: t, drive: sel.drive });
+    const schedCard = renderSchedule(ctx);
+    const prelim = g.preliminary ? `
+      <div class="prelim">⚠ <b>PRELIMINARY DATA.</b> Specs for the ${esc(sel.model)} were added recently and are incomplete.
+        Many values say "confirm" - always check your Owner's Manual or do a VIN lookup at motorcraftservice.com.</div>` : "";
 
     const notes = [...(e.notes || []), ...(g.notes || [])];
     const notesCard = notes.length ? `
@@ -205,9 +277,9 @@
         <ul class="notes">${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
       </div>` : "";
 
-    $("#specOut").innerHTML = `
+    $("#specOut").innerHTML = `${prelim}
       <div class="card">
-        <div class="card-h"><span class="sec">SUMMARY</span> ${sel.year} F-150 · ${esc(e.name)} · ${sel.drive.toUpperCase()}</div>
+        <div class="card-h"><span class="sec">SUMMARY</span> ${sel.year} ${sel.model} · ${esc(e.name)} · ${sel.drive.toUpperCase()}</div>
         ${hero}
       </div>
       ${engineCard}${transCard}${fuelCard}${filterCard}${diffCard}${chassisCard}${schedCard}${notesCard}`;
@@ -222,7 +294,7 @@
   const resolve = (v, c) => (typeof v === "function" ? v(c) : v);
 
   function isMyTruck(c) {
-    return S.truck && S.truck.year === c.year && S.truck.engine === c.eng.id && S.truck.trans === c.trans.id && S.truck.drive === c.drive;
+    return S.truck && (S.truck.model || "F-150") === sel.model && S.truck.year === c.year && S.truck.engine === c.eng.id && S.truck.trans === c.trans.id && S.truck.drive === c.drive;
   }
 
   function scheduleStatus(item, c) {
@@ -270,7 +342,7 @@
       <div class="card">
         <div class="card-h"><span class="sec">SEC 08</span> DIY MAINTENANCE SCHEDULE</div>
         <p class="hint">Ford "normal" schedule. Replace at whichever comes first, miles or months.
-          ${mine ? "Status comes from your Service Log." : "Tap <b>★ MY TRUCK</b> to see how each item compares with your Service Log."}</p>
+          ${mine ? "Status comes from your Service Log." : "Tap <b>★ SAVE AS MINE</b> to see how each item compares with your Service Log."}</p>
         <ul class="sched">${rows}</ul>
       </div>`;
   }
@@ -305,7 +377,7 @@
   function renderDue() {
     const d = computeDue(), box = $("#nextDue"), ban = $("#dueBanner");
     ban.className = "banner hidden";
-    if (!S.truck) { box.innerHTML = `<div class="empty" style="grid-column:1/-1">Select your truck on the SPECS tab and tap <b>★ MY TRUCK</b>.</div>`; return; }
+    if (!S.truck) { box.innerHTML = `<div class="empty" style="grid-column:1/-1">Select your vehicle on the SPECS tab and tap <b>★ SAVE AS MINE</b>.</div>`; return; }
     if (d.none) { box.innerHTML = `<div class="empty" style="grid-column:1/-1">No ${esc(d.type)} logged yet. Record your last one below to start reminders.</div>`; return; }
 
     box.innerHTML = `
@@ -361,7 +433,7 @@
       const miles = +$("#logMiles").value;
       if (!miles || miles < 0) return toast("Enter a valid mileage");
       S.log.push({
-        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        id: newId(),
         type: t.value, date: $("#logDate").value, miles,
         cost: $("#logCost").value ? +$("#logCost").value : null,
         notes: $("#logNotes").value.trim()
@@ -380,14 +452,14 @@
 
     $("#btnExport").onclick = () => {
       const blob = new Blob([JSON.stringify(S, null, 2)], { type: "application/json" });
-      download(blob, `f150-service-${todayISO()}.json`);
+      download(blob, `truck-backup-${todayISO()}.json`);
     };
     $("#fileImport").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
       try {
         const d = JSON.parse(await f.text());
         if (!Array.isArray(d.log)) throw 0;
-        if (!confirm(`Import ${d.log.length} records? This replaces current data.`)) return;
+        if (!confirm(`Import ${d.log.length} service records and ${(d.expenses || []).length} expenses? This replaces current data.`)) return;
         localStorage.setItem(LS, JSON.stringify(d)); S = load(); init(); toast("Data imported");
       } catch { toast("Invalid backup file"); }
       e.target.value = "";
@@ -416,8 +488,9 @@
       : `${d.type} due in ${fmtMi(Math.max(0, d.milesLeft))} mi or ${Math.max(0, d.daysLeft)} days.`;
     try {
       const reg = await navigator.serviceWorker?.getRegistration();
-      if (reg) reg.showNotification("F-150 Service Reminder", { body, icon: "icon.svg", tag: "f150-due" });
-      else new Notification("F-150 Service Reminder", { body, icon: "icon.svg" });
+      const title = `${S.truck.model || "F-150"} Service Reminder`;
+      if (reg) reg.showNotification(title, { body, icon: "icon.svg", tag: "truck-due" });
+      else new Notification(title, { body, icon: "icon.svg" });
     } catch { /* ignore */ }
   }
 
@@ -428,30 +501,133 @@
     const ymd = (dt) => dt.toISOString().slice(0, 10).replace(/-/g, "");
     const stamp = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
     const nm = S.name ? ` (${S.name})` : "";
+    const md = S.truck.model || "F-150";
     const ics = [
-      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//F150 FSR//EN", "CALSCALE:GREGORIAN",
+      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//DIY Garage//EN", "CALSCALE:GREGORIAN",
       "BEGIN:VEVENT",
-      `UID:f150-${d.last.id}@fsr`, `DTSTAMP:${stamp}`,
+      `UID:truck-${d.last.id}@diygarage`, `DTSTAMP:${stamp}`,
       `DTSTART;VALUE=DATE:${ymd(d.dueDate)}`,
       `DTEND;VALUE=DATE:${ymd(new Date(d.dueDate.getTime() + 864e5))}`,
-      `SUMMARY:F-150 ${d.type} due${nm}`,
+      `SUMMARY:${md} ${d.type} due${nm}`,
       `DESCRIPTION:${d.type} due by ${fmtMi(d.dueMiles)} mi or this date (whichever first).\\nLast service: ${fmtMi(d.last.miles)} mi on ${d.last.date}.`,
-      "BEGIN:VALARM", "TRIGGER:-P7D", "ACTION:DISPLAY", "DESCRIPTION:F-150 service due in 1 week", "END:VALARM",
-      "BEGIN:VALARM", "TRIGGER:PT9H", "ACTION:DISPLAY", "DESCRIPTION:F-150 service due today", "END:VALARM",
+      "BEGIN:VALARM", "TRIGGER:-P7D", "ACTION:DISPLAY", `DESCRIPTION:${md} service due in 1 week`, "END:VALARM",
+      "BEGIN:VALARM", "TRIGGER:PT9H", "ACTION:DISPLAY", `DESCRIPTION:${md} service due today`, "END:VALARM",
       "END:VEVENT", "END:VCALENDAR"
     ].join("\r\n");
-    download(new Blob([ics], { type: "text/calendar" }), "f150-service-due.ics");
+    download(new Blob([ics], { type: "text/calendar" }), "truck-service-due.ics");
     toast("Open the file to add to your calendar");
+  }
+
+  // ---------------- expenses ----------------
+  const EXP_CATS = ["Modification", "Maintenance", "Repair", "Parts", "Tools", "Tires & Wheels",
+    "Accessories", "Detailing", "Insurance", "Registration / Fees", "Fuel", "Other"];
+  const CAT_COLORS = ["#1700F4", "#2D96CD", "#c41e1e", "#0a7d38", "#c77700", "#6b3fa0",
+    "#00838f", "#ad1457", "#5d4037", "#455a64", "#7cb342", "#8a96ad"];
+
+  // all money spent: manual expenses + costs entered on service log records
+  function allExpenses() {
+    const svc = S.log.filter((l) => l.cost > 0).map((l) => ({
+      id: "svc-" + l.id, date: l.date, amount: +l.cost, category: "Maintenance",
+      desc: normType(l.type), vendor: "", miles: l.miles, notes: l.notes || "", fromLog: true
+    }));
+    return [...S.expenses, ...svc].sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  function expPeriodFilter(list) {
+    const p = $("#expPeriod").value, now = new Date();
+    if (p === "all") return list;
+    if (p === "ytd") return list.filter((x) => x.date.slice(0, 4) === String(now.getFullYear()));
+    const days = +p;
+    const cut = new Date(now.getTime() - days * 864e5).toISOString().slice(0, 10);
+    return list.filter((x) => x.date >= cut);
+  }
+
+  function renderExpenses() {
+    const cat = $("#expFilterCat").value;
+    const all = allExpenses();
+    let list = expPeriodFilter(all);
+    const periodTotal = list.reduce((s, x) => s + x.amount, 0);
+    const byCat = {};
+    list.forEach((x) => (byCat[x.category] = (byCat[x.category] || 0) + x.amount));
+    if (cat !== "all") list = list.filter((x) => x.category === cat);
+
+    // cost per mile (lifetime): needs a span of mileage readings
+    const miles = all.map((x) => x.miles).filter((m) => m > 0);
+    if (S.odo) miles.push(S.odo);
+    const span = miles.length > 1 ? Math.max(...miles) - Math.min(...miles) : 0;
+    const lifetime = all.reduce((s, x) => s + x.amount, 0);
+    const mods = all.filter((x) => x.category === "Modification").reduce((s, x) => s + x.amount, 0);
+    const maint = all.filter((x) => ["Maintenance", "Repair"].includes(x.category)).reduce((s, x) => s + x.amount, 0);
+
+    $("#expKpis").innerHTML = `
+      <div class="kpi"><div class="k">PERIOD TOTAL</div><div class="v">${money(periodTotal)}</div></div>
+      <div class="kpi"><div class="k">LIFETIME</div><div class="v">${money(lifetime)}</div></div>
+      <div class="kpi"><div class="k">MODS (ALL TIME)</div><div class="v">${money(mods)}</div></div>
+      <div class="kpi"><div class="k">MAINT + REPAIR</div><div class="v">${money(maint)}</div></div>
+      <div class="kpi wide"><div class="k">COST PER MILE (LIFETIME)</div><div class="v">${span > 0 ? "$" + (lifetime / span).toFixed(3) + " / mi" : "—"}</div>
+        <div class="kk">${span > 0 ? `over ${fmtMi(span)} logged miles` : "Add mileage to entries to calculate"}</div></div>`;
+
+    const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+    const max = cats.length ? cats[0][1] : 1;
+    $("#expBreakdown").innerHTML = cats.length ? `<ul class="bars">${cats.map(([c, v]) => {
+      const col = CAT_COLORS[EXP_CATS.indexOf(c)] || "#8a96ad";
+      return `<li><span class="bl">${esc(c)}</span><span class="bt"><i style="width:${(v / max) * 100}%;background:${col}"></i></span>
+        <span class="bv">${money(v)}</span><span class="bp">${periodTotal ? Math.round((v / periodTotal) * 100) : 0}%</span></li>`;
+    }).join("")}</ul>` : `<div class="empty">No expenses in this period.</div>`;
+
+    $("#expList").innerHTML = list.length ? `<ul class="hist">${list.map((x) => `
+      <li>
+        <div class="ty">${esc(x.desc || x.category)}</div><div class="mi">${money(x.amount)}</div>
+        <div class="dt"><span class="cat" style="background:${CAT_COLORS[EXP_CATS.indexOf(x.category)] || "#8a96ad"}">${esc(x.category)}</span>
+          ${fmtDate(x.date)}${x.miles ? " · " + fmtMi(x.miles) + " mi" : ""}${x.vendor ? " · " + esc(x.vendor) : ""}</div>
+        ${x.fromLog ? `<span class="src">SERVICE LOG</span>` : `<button class="del" data-id="${x.id}">DELETE</button>`}
+        ${x.notes ? `<div class="nt">${esc(x.notes)}</div>` : ""}
+      </li>`).join("")}</ul>` : `<div class="empty">No expenses recorded.</div>`;
+
+    $$("#expList .del").forEach((b) => (b.onclick = () => {
+      if (!confirm("Delete this expense?")) return;
+      S.expenses = S.expenses.filter((x) => x.id !== b.dataset.id); save(); renderExpenses();
+    }));
+  }
+
+  function bindExpenses() {
+    const c = $("#expCat"), f = $("#expFilterCat");
+    EXP_CATS.forEach((x) => { c.add(new Option(x, x)); f.add(new Option(x, x)); });
+    $("#expDate").value = todayISO();
+    $("#expPeriod").onchange = renderExpenses;
+    f.onchange = renderExpenses;
+
+    $("#expForm").onsubmit = (ev) => {
+      ev.preventDefault();
+      const amount = +$("#expAmt").value;
+      if (!(amount > 0)) return toast("Enter an amount");
+      const miles = +$("#expMiles").value || null;
+      S.expenses.push({
+        id: newId(), date: $("#expDate").value, amount, category: c.value,
+        desc: $("#expDesc").value.trim(), vendor: $("#expVendor").value.trim(),
+        miles, notes: $("#expNotes").value.trim()
+      });
+      if (miles && (S.odo == null || miles > S.odo)) S.odo = miles;
+      save(); $("#expForm").reset(); $("#expDate").value = todayISO();
+      renderExpenses(); renderTruck(); toast("Expense recorded");
+    };
+
+    $("#btnExpCsv").onclick = () => {
+      const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const rows = [["Date", "Category", "Description", "Vendor", "Amount", "Mileage", "Notes", "Source"]]
+        .concat(allExpenses().map((x) => [x.date, x.category, x.desc, x.vendor, x.amount.toFixed(2), x.miles || "", x.notes, x.fromLog ? "Service Log" : "Expense"]));
+      download(new Blob([rows.map((r) => r.map(q).join(",")).join("\r\n")], { type: "text/csv" }), `truck-expenses-${todayISO()}.csv`);
+    };
   }
 
   // ---------------- my truck / settings ----------------
   function renderTruck() {
     const m = $("#myTruck");
-    if (!S.truck) { m.innerHTML = `<div class="empty">No truck saved yet.</div>`; }
+    if (!S.truck) { m.innerHTML = `<div class="empty">No vehicle saved yet.</div>`; }
     else {
       const e = engById(S.truck.engine), t = trById(S.truck.trans);
       m.innerHTML = `<table class="spec">
-        ${row("Model year", String(S.truck.year), { big: true })}
+        ${row("Vehicle", truckLabel(S.truck), { big: true })}
         ${row("Engine", e?.name || "-")}
         ${row("Transmission", t?.name || "-")}
         ${row("Driveline", S.truck.drive.toUpperCase())}
@@ -482,7 +658,7 @@
       $("#setMi").value = e.intervalMi; $("#setMo").value = e.intervalMo;
     };
     $("#btnWipe").onclick = () => {
-      if (!confirm("Erase truck, settings and ALL service history from this device?")) return;
+      if (!confirm("Erase truck, settings, ALL service history and ALL expenses from this device?")) return;
       localStorage.removeItem(LS); S = load(); init(); toast("Data erased");
     };
   }
@@ -496,21 +672,20 @@
     }));
   }
 
-  function renderAll() { renderDue(); renderHistory(); renderTruck(); renderSpecs(); }
+  function renderAll() { renderDue(); renderHistory(); renderTruck(); renderSpecs(); renderExpenses(); }
 
   function init() {
     $("#rev").textContent = "REV " + DATA_VERSION;
-    fillYears();
-    sel = S.truck ? { ...S.truck } : { year: new Date().getFullYear(), engine: null, trans: null, drive: "4x4" };
+    sel = S.truck ? { model: "F-150", ...S.truck } : { model: "F-150", year: new Date().getFullYear(), engine: null, trans: null, drive: "4x4" };
     if (sel.year > MAX_YEAR || sel.year < 1990) sel.year = MAX_YEAR - 1;
-    $("#selYear").value = sel.year;
-    fillEngines(); fillTrans(); setDrive(sel.drive);
-    renderSpecs(); renderAll();
+    setModel(sel.model);
+    fillYears(); fillEngines(); fillTrans(); fillDrives();
+    renderAll();
   }
 
   let bound = false;
   function boot() {
-    if (!bound) { bindSelector(); bindLog(); bindSettings(); bindTabs(); bound = true; }
+    if (!bound) { fillCats(); bindSelector(); bindLog(); bindExpenses(); bindSettings(); bindTabs(); bound = true; }
     init();
     if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
       navigator.serviceWorker.register("sw.js").catch(() => {});

@@ -9,7 +9,7 @@
    Ford Workshop Manual, or motorcraftservice.com before final torque.
    ===================================================================== */
 
-const DATA_VERSION = "2026.11b";
+const DATA_VERSION = "2026.11d";
 
 /* ---------------------------------------------------------------------
    GENERATIONS - chassis-level specs shared by every engine in the range
@@ -214,7 +214,7 @@ const ENGINES = [
     verify: ["oilCap", "filter", "drainTorque"] },
 
   // ---------- 2021-present ----------
-  { id: "27eb_g3", name: "2.7L V6 EcoBoost", family: "Nano EcoBoost V6", years: [2021, 2099],
+  { id: "27eb_g3", name: "2.7L V6 EcoBoost", family: "Nano EcoBoost V6", years: [2021, 2026],
     oilCap: "6.0 qt (5.7 L)", oilVisc: "SAE 5W-30", oilSpec: "Ford WSS-M2C961-A1",
     filter: "Motorcraft FL-910S", drainTorque: "≈ 20 lb-ft (27 N·m) - composite pan",
     trans: ["10r80"], intervalMi: 5000, intervalMo: 6, notes: ["Base engine from 2024 MY."], verify: ["drainTorque"] },
@@ -458,6 +458,20 @@ ENGINES.forEach((e) => {
    Intervals = Ford "normal" schedule; see `severe` for towing/
    off-road/dusty/extreme-temp/heavy idling use.
    --------------------------------------------------------------------- */
+/* Driveline components present for a given drive type.
+   rear = rear differential/axle, front = front differential, tcase = transfer case,
+   ptu = power transfer unit (FWD-based AWD), rdu = rear drive unit (FWD-based AWD).
+   A generation can override with `components: { AWD: [...] }`. */
+const DEFAULT_COMPONENTS = {
+  "4x2": ["rear"], "4x4": ["rear", "front", "tcase"],
+  "RWD": ["rear"], "FWD": [], "AWD": ["ptu", "rdu"]
+};
+function driveComps(c) {
+  if (c.eng.isEV) return [];
+  const o = c.gen.components || {};
+  return o[c.drive] || DEFAULT_COMPONENTS[c.drive] || [];
+}
+
 const SCHEDULE = [
   { type: "Oil & Filter Change", mi: (c) => c.eng.intervalMi, mo: (c) => c.eng.intervalMo,
     severe: (c) => (c.year >= 2011
@@ -467,7 +481,7 @@ const SCHEDULE = [
   { type: "Tire Rotation", mi: () => 7500, mo: () => null, severe: "Every 5,000 mi",
     when: () => true },
   { type: "Engine Air Filter", mi: () => 30000, mo: () => null, severe: "Every 15,000 mi or sooner in dusty conditions - inspect at each oil change",
-    part: (c) => c.gen.airFilter, when: (c) => !c.eng.isEV },
+    part: (c) => c.eng.airFilter ?? c.gen.airFilter, when: (c) => !c.eng.isEV },
   { type: "Cabin Air Filter", mi: () => 20000, mo: () => 24, severe: "Every 10,000-15,000 mi in dusty conditions",
     part: (c) => c.gen.cabinFilter, when: (c) => !/^Not equipped/.test(c.gen.cabinFilter || "") },
   { type: "Fuel Filter", mi: (c) => c.eng.fuelFilterMi ?? c.gen.fuelFilterMi, mo: () => null,
@@ -484,13 +498,19 @@ const SCHEDULE = [
     when: (c) => c.trans.type !== "EV" },
   { type: "Rear Differential Fluid", mi: (c) => (c.year >= 2011 ? 150000 : 100000), mo: () => null, part: (c) => c.gen.rearAxle,
     severe: "Towing, off-road, or after the axle has been under water: every 30,000 mi",
-    when: (c) => !c.eng.isEV },
+    when: (c) => driveComps(c).includes("rear") },
   { type: "Front Differential Fluid", mi: (c) => (c.year >= 2011 ? 150000 : 100000), mo: () => null, part: (c) => c.gen.frontDiff,
     severe: "Off-road or after the axle has been under water: every 30,000 mi",
-    when: (c) => c.drive === "4x4" && !c.eng.isEV },
+    when: (c) => driveComps(c).includes("front") },
   { type: "Transfer Case Fluid", mi: (c) => (c.year >= 2011 ? 150000 : 60000), mo: () => null, part: (c) => c.gen.transferCase,
     severe: "Severe/off-road: every 30,000-60,000 mi",
-    when: (c) => c.drive === "4x4" && !c.eng.isEV },
+    when: (c) => driveComps(c).includes("tcase") },
+  { type: "PTU Fluid", mi: () => 150000, mo: () => null, part: (c) => c.gen.ptu,
+    severe: "Towing or frequent AWD use: every 30,000-60,000 mi",
+    when: (c) => driveComps(c).includes("ptu") },
+  { type: "Rear Drive Unit Fluid", mi: () => 150000, mo: () => null, part: (c) => c.gen.rdu,
+    severe: "Towing or frequent AWD use: every 30,000-60,000 mi",
+    when: (c) => driveComps(c).includes("rdu") },
   { type: "Drive Belt", mi: () => 150000, mo: () => null, severe: "Inspect at every oil change after 60,000 mi",
     when: (c) => !c.eng.isEV },
   { type: "Wiper Blades", mi: () => null, mo: () => 12, when: () => true },
@@ -502,7 +522,7 @@ const SCHEDULE = [
 const SERVICE_TYPES = [
   "Oil & Filter Change", "Tire Rotation", "Engine Air Filter", "Cabin Air Filter",
   "Fuel Filter", "Spark Plugs", "Transmission Fluid", "Rear Differential Fluid",
-  "Front Differential Fluid", "Transfer Case Fluid", "Coolant Flush", "Brake Fluid",
+  "Front Differential Fluid", "Transfer Case Fluid", "PTU Fluid", "Rear Drive Unit Fluid", "Coolant Flush", "Brake Fluid",
   "Brake Pads / Rotors", "Drive Belt", "Battery Test", "Battery Replacement",
   "Wiper Blades", "Other"
 ];
